@@ -72,7 +72,7 @@ static int min(int x, int y) {
  * Returns negative errno upon error condition.
  *
  */
-static int parse_float(char *frac, int *result, int scale, int min, int max)
+static int parse_float(char *frac, int *result, int scale, float min, float max)
 {
 	float fres;
 
@@ -81,10 +81,10 @@ static int parse_float(char *frac, int *result, int scale, int min, int max)
 	if (errno)
 		return -errno;
 
-	*result = roundf(fres * scale);
-
-	if (*result < min || *result >  max)
+	if (fres < min || fres > max)
 		return -ERANGE;
+
+	*result = roundf(fres * scale);
 
 	return 0;
 }
@@ -628,13 +628,13 @@ static int wt_type12_pwle_wait_time_entry(struct wt_type12_pwle *pwle,
 	int ret, val;
 
 	/* Valid values from spec.: 0 ms - 1023.75 ms */
-	ret = parse_float(token, &val, 100, 0, 102375);
+	ret = parse_float(token, &val, 4, 0.0f, 1023.75f);
 	if (ret) {
 		printf("Failed to parse wait time: %d\n", ret);
 		return ret;
 	}
 
-	pwle->wait = val / (100 / 4);
+	pwle->wait = val;
 	pwle->wlength += pwle->wait;
 
 	return 0;
@@ -661,13 +661,13 @@ static int wt_type12_pwle_time_entry(struct wt_type12_pwle *pwle, char *token,
 	int ret, val;
 
 	/* Valid values from spec.: 0 ms - 16383.75 ms = infinite */
-	ret = parse_float(token, &val, 100, 0, 1638375);
+	ret = parse_float(token, &val, 4, 0.0f, 16383.75f);
 	if (ret) {
 		printf("Fauked to parse time: %d\n", ret);
 		return ret;
 	}
 
-	section->time = val / (100 / 4);
+	section->time = val;
 
 	if (val == WT_TYPE12_PWLE_INDEF_TIME_VAL)
 		*indef = true;
@@ -697,13 +697,13 @@ static int wt_type12_pwle_level_entry(struct wt_type12_pwle *pwle, char *token,
 	int ret, val;
 
 	/* Valid values from spec.: -1 - 0.9995118 */
-	ret = parse_float(token, &val, 10000000, -10000000, 9995118);
+	ret = parse_float(token, &val, 2048, -1.0f, 0.9995118f);
 	if (ret) {
 		printf("Failed to parse level: %d\n", ret);
 		return ret;
 	}
 
-	section->level = val / (10000000 / 2048);
+	section->level = val;
 
 	return 0;
 }
@@ -728,13 +728,13 @@ static int wt_type12_pwle_freq_entry(struct wt_type12_pwle *pwle, char *token,
 	int ret, val;
 
 	/* Valid values from spec.: 0.25 Hz - 1023.75 Hz */
-	ret = parse_float(token, &val, 1000, 250, 1023750);
+	ret = parse_float(token, &val, 4, 0.25f, 1023.75f);
 	if (ret) {
 		printf("Failed to parse frequency: %d\n", ret);
 		return ret;
 	}
 
-	section->frequency = val / (1000 / 4);
+	section->frequency = val;
 
 	return 0;
 }
@@ -762,16 +762,11 @@ static int wt_type12_pwle_vb_target_entry(struct wt_type12_pwle *pwle,
 	 * Don't pass a scale value, since scaling is done locally.
 	 * Valid values from spec.: 0 - 1.
 	 */
-	ret = parse_float(token, &val, 1000000, 0, 1000000);
+	ret = parse_float(token, &val, 0x7FFFFF, 0.0f, 1.0f);
 	if (ret) {
 		printf("Failed to parse VB target: %d\n", ret);
 		return ret;
 	}
-
-	/* Approximation to scaling to 999999/0x7fffff without overflowing */
-	val = (val * 1770) / 211;
-	val = (val > 0x7FFFFF) ? 0x7FFFFF : val;
-	val = (val < 0) ? 0 : val;
 
 	section->vbtarget = val;
 
