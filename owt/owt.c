@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#include <errno.h>
+#include <math.h>
 #include "owt.h"
 
 /***********/
@@ -62,7 +64,7 @@ static int min(int x, int y) {
  *
  * @frac - Floating point value to be converted
  * @result - Resulting integer
- * @nfracdigits - Number of decimal digits in the floating point number
+ * @scale - Multiplier to increase the result by to obtain an integer
  * @minimum - Minimum allowable value for @result
  * @maximum - Maximum allowable value for @result
  *
@@ -70,28 +72,18 @@ static int min(int x, int y) {
  * Returns negative errno upon error condition.
  *
  */
-static int parse_float(char *frac, int *result, int nfracdigits, int minimum,
-		int maximum)
+static int parse_float(char *frac, int *result, int scale, int min, int max)
 {
-	char *inte, convert[] = "000000000";
-	int ninte, nfrac = 0;
+	float fres;
 
-	if (strlen(frac) > strlen(convert))
-		return -EOVERFLOW;
+	errno = 0;
+	fres = strtof(frac, NULL);
+	if (errno)
+		return -errno;
 
-	inte = strsep(&frac, ".");
+	*result = roundf(fres * scale);
 
-	ninte = strlen(inte);
-	if (frac)
-		nfrac = strlen(frac);
-
-	memcpy(convert, inte, ninte);
-	memcpy(convert + ninte, frac, min(nfrac, nfracdigits));
-	convert[ninte + nfracdigits] = 0;
-
-	*result = atoi(convert);
-
-	if (*result < minimum || *result >  maximum)
+	if (*result < min || *result >  max)
 		return -ERANGE;
 
 	return 0;
@@ -636,7 +628,7 @@ static int wt_type12_pwle_wait_time_entry(struct wt_type12_pwle *pwle,
 	int ret, val;
 
 	/* Valid values from spec.: 0 ms - 1023.75 ms */
-	ret = parse_float(token, &val, 2, 0, 102375);
+	ret = parse_float(token, &val, 100, 0, 102375);
 	if (ret) {
 		printf("Failed to parse wait time: %d\n", ret);
 		return ret;
@@ -669,7 +661,7 @@ static int wt_type12_pwle_time_entry(struct wt_type12_pwle *pwle, char *token,
 	int ret, val;
 
 	/* Valid values from spec.: 0 ms - 16383.75 ms = infinite */
-	ret = parse_float(token, &val, 2, 0, 1638375);
+	ret = parse_float(token, &val, 100, 0, 1638375);
 	if (ret) {
 		printf("Fauked to parse time: %d\n", ret);
 		return ret;
@@ -705,7 +697,7 @@ static int wt_type12_pwle_level_entry(struct wt_type12_pwle *pwle, char *token,
 	int ret, val;
 
 	/* Valid values from spec.: -1 - 0.9995118 */
-	ret = parse_float(token, &val, 7, -10000000, 9995118);
+	ret = parse_float(token, &val, 10000000, -10000000, 9995118);
 	if (ret) {
 		printf("Failed to parse level: %d\n", ret);
 		return ret;
@@ -736,7 +728,7 @@ static int wt_type12_pwle_freq_entry(struct wt_type12_pwle *pwle, char *token,
 	int ret, val;
 
 	/* Valid values from spec.: 0.25 Hz - 1023.75 Hz */
-	ret = parse_float(token, &val, 3, 250, 1023750);
+	ret = parse_float(token, &val, 1000, 250, 1023750);
 	if (ret) {
 		printf("Failed to parse frequency: %d\n", ret);
 		return ret;
@@ -770,7 +762,7 @@ static int wt_type12_pwle_vb_target_entry(struct wt_type12_pwle *pwle,
 	 * Don't pass a scale value, since scaling is done locally.
 	 * Valid values from spec.: 0 - 1.
 	 */
-	ret = parse_float(token, &val, 6, 0, 1000000);
+	ret = parse_float(token, &val, 1000000, 0, 1000000);
 	if (ret) {
 		printf("Failed to parse VB target: %d\n", ret);
 		return ret;

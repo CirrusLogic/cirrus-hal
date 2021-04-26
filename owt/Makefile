@@ -4,7 +4,7 @@ CC=gcc
 # Compiler flags:
 # -I. use current directory
 # -Wall turns on most, but not all, compiler warnings
-CFLAGS=-I. -Wall
+CFLAGS=-I. -Wall -lm
 
 # Build Dependencies
 DEPS = owt.h
