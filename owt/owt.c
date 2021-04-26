@@ -283,9 +283,7 @@ static enum wt_type10_comp_specifier wt_type10_comp_specifier_get(char *str)
  * wt_type10_comp_waveform_get() - Retrieve waveform information from string
  *
  * @str: String containing waveform information
- * @index: Pointer to index value to be populated
- * @amp: Pointer to amplitude value to be populated
- * @duration: Pointer to duration value to be populated
+ * @wave: Pointer to the waveform structure to be populated
  *
  * Gets index, amplitude, and duration (if applicable) for
  * COMP_SEGMENT_TYPE_WVFRM segments.
@@ -294,8 +292,8 @@ static enum wt_type10_comp_specifier wt_type10_comp_specifier_get(char *str)
  * in error cases.
  *
  */
-static int wt_type10_comp_waveform_get(char *str, uint8_t *index, uint8_t *amp,
-		uint16_t *duration) {
+static int wt_type10_comp_waveform_get(char *str,
+				       struct wt_type10_comp_wvfrm *wave) {
 	unsigned int index_tmp, amp_tmp, duration_tmp;
 	int ret;
 
@@ -327,9 +325,9 @@ static int wt_type10_comp_waveform_get(char *str, uint8_t *index, uint8_t *amp,
 		duration_tmp = 0;
 	}
 
-	*index = (uint8_t) (0xFF & index_tmp);
-	*amp = (uint8_t) (0xFF & amp_tmp);
-	*duration = (uint16_t) (0xFFFF & duration_tmp);
+	wave->index = (uint8_t) (0xFF & index_tmp);
+	wave->amplitude = (uint8_t) (0xFF & amp_tmp);
+	wave->duration = (uint16_t) (0xFFFF & duration_tmp);
 
 	return 0;
 }
@@ -339,8 +337,6 @@ static int wt_type10_comp_waveform_get(char *str, uint8_t *index, uint8_t *amp,
  *
  * @comp: Pointer to the composite waveform type struct
  * @specifier: Symbol to decode
- * @prev: Previously decoded symbol, must be COMP_SPEC_INVALID if @specifier
- * is first element in sequence
  * @str: Value associated with the given specifier. i.e. Number of repeats
  * for COMP_SPEC_INNER_LOOP_STOP
  *
@@ -353,15 +349,14 @@ static int wt_type10_comp_waveform_get(char *str, uint8_t *index, uint8_t *amp,
  *
  */
 static int wt_type10_comp_decode(struct wt_type10_comp *comp,
-		enum wt_type10_comp_specifier specifier,
-		enum wt_type10_comp_specifier prev, char *str)
+				 enum wt_type10_comp_specifier specifier,
+				 char *str)
 {
-	uint8_t nsegments = comp->nsegments;
-	struct wt_type10_comp_segment *segment;
+	struct wt_type10_comp_section *section;
 	unsigned long l_val;
 	int ret;
 
-	segment = &comp->segments[nsegments];
+	section = &comp->sections[comp->nsections];
 
 	switch (specifier) {
 	case COMP_SPEC_OUTER_LOOP:
@@ -378,13 +373,12 @@ static int wt_type10_comp_decode(struct wt_type10_comp *comp,
 			return -EINVAL;
 		}
 
-		if (prev != COMP_SPEC_INVALID && prev != COMP_SPEC_OUTER_LOOP &&
-				prev != COMP_SPEC_OUTER_LOOP_REPETITION) {
-			segment++;
-			comp->nsegments++;
+		if (section->wvfrm.amplitude || section->delay) {
+			section++;
+			comp->nsections++;
 		}
 
-		segment->repeat = WT_REPEAT_LOOP_MARKER;
+		section->repeat = WT_REPEAT_LOOP_MARKER;
 
 		comp->inner_loop = true;
 		break;
@@ -401,7 +395,10 @@ static int wt_type10_comp_decode(struct wt_type10_comp *comp,
 			return -EINVAL;
 		}
 
-		segment->repeat = (uint8_t) (0xFF & l_val);
+		section->repeat = (uint8_t) (0xFF & l_val);
+
+		section++;
+		comp->nsections++;
 		break;
 	case COMP_SPEC_OUTER_LOOP_REPETITION:
 		if (comp->repeat) {
@@ -418,31 +415,22 @@ static int wt_type10_comp_decode(struct wt_type10_comp *comp,
 		comp->repeat = (uint8_t) (0xFF & l_val);
 		break;
 	case COMP_SPEC_WVFRM:
-		if (prev == COMP_SPEC_INNER_LOOP_STOP ||
-				prev == COMP_SPEC_WVFRM ||
-				prev == COMP_SPEC_DELAY) {
-			segment++;
-			comp->nsegments++;
+		if (section->wvfrm.amplitude || section->delay) {
+			section++;
+			comp->nsections++;
 		}
 
-		ret = wt_type10_comp_waveform_get(str,
-				&segment->params.wvfrm.index,
-				&segment->params.wvfrm.amplitude,
-				&segment->params.wvfrm.duration);
+		ret = wt_type10_comp_waveform_get(str, &section->wvfrm);
 		if (ret)
 			return ret;
 
-		if (segment->params.wvfrm.duration != 0)
-			segment->flags |= WT_TYPE10_COMP_DURATION_FLAG;
-
-		segment->type = COMP_SEGMENT_TYPE_WVFRM;
+		if (section->wvfrm.duration != 0)
+			section->flags |= WT_TYPE10_COMP_DURATION_FLAG;
 		break;
 	case COMP_SPEC_DELAY:
-		if (prev == COMP_SPEC_INNER_LOOP_STOP ||
-				prev == COMP_SPEC_WVFRM ||
-				prev == COMP_SPEC_DELAY) {
-			segment++;
-			comp->nsegments++;
+		if (section->delay) {
+			section++;
+			comp->nsections++;
 		}
 
 		l_val = strtoul(str, NULL, 10);
@@ -455,9 +443,7 @@ static int wt_type10_comp_decode(struct wt_type10_comp *comp,
 			printf("Delay %lu too long\n", l_val);
 			return -EINVAL;
 		}
-		segment->params.delay = (uint16_t) (0xFFFF & l_val);
-
-		segment->type = COMP_SEGMENT_TYPE_DELAY;
+		section->delay = (uint16_t) (0xFFFF & l_val);
 		break;
 	default:
 		printf("Invalid specifier\n");
@@ -465,109 +451,6 @@ static int wt_type10_comp_decode(struct wt_type10_comp *comp,
 	}
 
 	return 0;
-}
-
-/*
- * wt_type10_comp_is_new_sec() - Determines if section has all required info
- *
- * @section: Pointer to section being populated
- * @type: Type of segment currently being evaluated (COMP_SEGMENT_TYPE_WVFRM
- * or COMP_SEGMENT_TYPE_DELAY)
- * @segment_repeat: The value of the segment's repeat parameter
- *
- * Determines whether or not the section has completed and a new one can
- * be started or if the section is missing information and needs more segment
- * information to be finalized.
- *
- * Returns true if a new section will use the information provided.
- * Returns false if the current section still requires more information.
- *
- */
-static bool wt_type10_comp_is_new_sec(struct wt_type10_comp_section *section,
-		enum wt_type10_comp_segment_type type, uint8_t segment_repeat)
-{
-	if (type == COMP_SEGMENT_TYPE_WVFRM && section->has_wvfrm) {
-		return true;
-	} else if (type == COMP_SEGMENT_TYPE_DELAY && section->has_delay) {
-		return true;
-	} else if (segment_repeat) {
-		if (segment_repeat != WT_REPEAT_LOOP_MARKER)
-			return true;
-	}
-
-	return false;
-}
-
-/*
- * wt_type10_comp_create_sections() - Define sections according to segment info
- *
- * @comp: Pointer to the composite waveform type struct
- *
- * Populates the section struct array from the segment struct array. This is
- * required to facilitate data conversion as binary writes to the device for
- * these waveform types are broken up into sections.
- *
- */
-static void wt_type10_comp_create_sections(struct wt_type10_comp *comp)
-{
-	struct wt_type10_comp_section *section = &comp->sections[0];
-	struct wt_type10_comp_segment *segment, *next_segment;
-	uint8_t index = 0, amp = 0, repeat = 0, flags = 0;
-	uint16_t dur = 0, delay = 0;
-	int count = 0;
-
-	section->has_wvfrm = false;
-	section->has_delay = false;
-
-	while (count < comp->nsegments) {
-		segment = &comp->segments[count];
-		next_segment = &comp->segments[count + 1];
-
-		if (segment->type == COMP_SEGMENT_TYPE_WVFRM) {
-			section->has_wvfrm = true;
-			index = segment->params.wvfrm.index;
-			amp = segment->params.wvfrm.amplitude;
-
-			if (segment->flags & WT_TYPE10_COMP_DURATION_FLAG)
-				dur = segment->params.wvfrm.duration;
-		} else {
-			section->has_delay = true;
-			delay = segment->params.delay;
-		}
-
-		flags |= segment->flags;
-
-		if (segment->repeat)
-			repeat = segment->repeat;
-
-		/* Check if new section */
-		if (wt_type10_comp_is_new_sec(section, next_segment->type,
-				segment->repeat) ||
-				count == (comp->nsegments - 1)) {
-			section->wvfrm.index = index;
-			section->wvfrm.amplitude = amp;
-			section->wvfrm.duration = dur;
-			section->delay = delay;
-			section->flags = flags;
-			section->repeat = repeat;
-			comp->nsections++;
-
-			/* Check if last section */
-			if (count < comp->nsegments - 1) {
-				section++;
-				section->has_delay = false;
-				section->has_wvfrm = false;
-
-				index = 0;
-				amp = 0;
-				repeat = 0;
-				flags = 0;
-				dur = 0;
-				delay = 0;
-			}
-		}
-		count++;
-	}
 }
 
 /*
@@ -585,20 +468,19 @@ static void wt_type10_comp_create_sections(struct wt_type10_comp *comp)
  */
 static int wt_type10_comp_str_to_bin(char *full_str, uint8_t *data)
 {
-	enum wt_type10_comp_specifier specifier, prev = COMP_SPEC_INVALID;
+	enum wt_type10_comp_specifier specifier;
 	char delim[] = ", \n";
-	struct wt_type10_comp comp;
+	struct wt_type10_comp comp = { 0 };
 	char *str;
 	int ret;
 
 	str = strtok(full_str, delim);
 	while (str != NULL) {
 		specifier = wt_type10_comp_specifier_get(str);
-		ret = wt_type10_comp_decode(&comp, specifier, prev, str);
+		ret = wt_type10_comp_decode(&comp, specifier, str);
 		if (ret)
 			return ret;
 
-		prev = specifier;
 		str = strtok(NULL, delim);
 	}
 
@@ -607,10 +489,9 @@ static int wt_type10_comp_str_to_bin(char *full_str, uint8_t *data)
 		return -EINVAL;
 	}
 
-	comp.nsegments++;
-
-	comp.nsections = 0;
-	wt_type10_comp_create_sections(&comp);
+	if (comp.sections[comp.nsections].wvfrm.amplitude ||
+	    comp.sections[comp.nsections].delay)
+		comp.nsections++;
 
 	return wt_type10_comp_to_buffer(&comp,
 			WT_TYPE12_PWLE_SINGLE_PACKED_MAX, data);

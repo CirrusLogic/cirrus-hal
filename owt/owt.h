@@ -144,11 +144,6 @@ enum wt_type10_comp_specifier {
 	COMP_SPEC_INVALID,
 };
 
-enum wt_type10_comp_segment_type {
-	COMP_SEGMENT_TYPE_WVFRM,
-	COMP_SEGMENT_TYPE_DELAY,
-};
-
 /* structs */
 struct dspmem_chunk {
 	uint8_t *data;
@@ -185,34 +180,19 @@ struct wt_type10_comp_wvfrm {
 	uint16_t duration;
 };
 
-struct wt_type10_comp_segment {
-	uint8_t repeat;
-	uint8_t flags;
-	enum wt_type10_comp_segment_type type;
-
-	union {
-		struct wt_type10_comp_wvfrm wvfrm;
-		uint16_t delay;
-	} params;
-};
-
 struct wt_type10_comp_section {
 	uint8_t repeat;
 	uint8_t flags;
-	bool has_delay;
-	bool has_wvfrm;
-	uint16_t delay;
 	struct wt_type10_comp_wvfrm wvfrm;
+	uint16_t delay;
 };
 
 struct wt_type10_comp {
-	uint8_t nsegments;
 	uint8_t nsections;
 	uint8_t repeat;
 	bool inner_loop;
 	int fd;
 
-	struct wt_type10_comp_segment segments[WT_MAX_SEGMENTS];
 	struct wt_type10_comp_section sections[WT_MAX_SECTIONS];
 };
 
