@@ -359,6 +359,20 @@ static int wt_type10_comp_decode(struct wt_type10_comp *comp,
 
 		comp->repeat = WT_REPEAT_LOOP_MARKER;
 		break;
+	case COMP_SPEC_OUTER_LOOP_REPETITION:
+		if (comp->repeat) {
+			printf("Duplicate outer loop specifier\n");
+			return -EINVAL;
+		}
+
+		l_val = strtoul(strsep(&str, "!"), NULL, 10);
+		if (!l_val) {
+			printf("Failed to get outer loop specifier\n");
+			return -EINVAL;
+		}
+
+		comp->repeat = (uint8_t) (0xFF & l_val);
+		break;
 	case COMP_SPEC_INNER_LOOP_START:
 		if (comp->inner_loop) {
 			printf("Nested inner loop specifier not allowed\n");
@@ -391,20 +405,6 @@ static int wt_type10_comp_decode(struct wt_type10_comp *comp,
 
 		section++;
 		comp->nsections++;
-		break;
-	case COMP_SPEC_OUTER_LOOP_REPETITION:
-		if (comp->repeat) {
-			printf("Duplicate outer loop specifier\n");
-			return -EINVAL;
-		}
-
-		l_val = strtoul(strsep(&str, "!"), NULL, 10);
-		if (!l_val) {
-			printf("Failed to get outer loop specifier\n");
-			return -EINVAL;
-		}
-
-		comp->repeat = (uint8_t) (0xFF & l_val);
 		break;
 	case COMP_SPEC_WVFRM:
 		if (section->wvfrm.amplitude || section->delay) {
