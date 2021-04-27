@@ -194,6 +194,86 @@ static int dspmem_chunk_flush(struct dspmem_chunk *ch)
 	return dspmem_chunk_write(ch, 24 - ch->cachebits, 0);
 }
 
+/*************************************/
+/* Input Force Feedback Interactions */
+/*************************************/
+
+/*
+ * owt_upload() - Upload the Open Wavetable Waveform via Input FF
+ *
+ * @data: Pointer to data to be written
+ * @num_bytes: Size of data in bytes
+ * @fd: File descriptor corresponding to the open Input FF Device
+ *
+ * Returns effect ID upon success.
+ * Return negative errno on failure.
+ *
+ */
+int owt_upload(uint8_t *data, uint32_t num_bytes, int fd)
+{
+	struct ff_effect effect;
+	int ret;
+
+	effect.id = -1; /* New Effect */
+	effect.type = FF_PERIODIC;
+	effect.u.periodic.waveform = FF_CUSTOM;
+	effect.replay.length = 0; /* Reserved value for OWT waveforms */
+	effect.u.periodic.custom_len = num_bytes / 2; /* # of 16-bit elements */
+	effect.u.periodic.custom_data =
+			(int16_t *) malloc(sizeof(int16_t) *
+			effect.u.periodic.custom_len);
+	if (effect.u.periodic.custom_data == NULL) {
+		printf("Failed to allocate memory for custom data\n");
+		return -ENOMEM;
+	}
+
+	memcpy(effect.u.periodic.custom_data, data, num_bytes);
+
+	fflush(stdout);
+	if (ioctl(fd, EVIOCSFF, &effect) == -1) {
+		printf("Failed to upload waveform\n");
+		ret = -ENXIO;
+		goto err_free;
+	}
+
+	printf("Successfully uploaded OWT effect with ID = %d\n", effect.id);
+	ret = effect.id;
+
+err_free:
+	free(effect.u.periodic.custom_data);
+
+	return ret;
+}
+
+/*
+ * owt_trigger() - Start or stop playback of Open Wavetable effect
+ *
+ * @effect_id: Uploaded effect representing OWT waveform
+ * @fd: File descriptor corresponding to the open Input FF Device
+ * @play: Boolean determining if playing or stopping effect
+ *
+ * Returns 0 upon success.
+ * Return negative errno on failure.
+ *
+ */
+int owt_trigger(int effect_id, int fd, bool play)
+{
+	struct input_event event;
+
+	memset(&event, 0, sizeof(event));
+	event.type = EV_FF;
+	event.value = play ? 1 : 0;
+	event.code = effect_id;
+
+	fflush(stdout);
+	if ((write(fd, (const void*) &event, sizeof(event))) == -1 ) {
+		printf("Could not %s effect\n", play ? "play" : "stop");
+		return -ENXIO;
+	}
+
+	return 0;
+}
+
 /*******************************/
 /* Waveform Type 10: Composite */
 /*******************************/

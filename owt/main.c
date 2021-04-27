@@ -20,7 +20,7 @@ int main(int argc, char** argv)
 {
 	uint8_t data[WT_TYPE12_PWLE_SINGLE_PACKED_MAX];
 	char str[WT_STR_MAX_LEN];
-	int num_bytes, i;
+	int num_bytes, i, fd, effect_id, ret;
 
 	/*
 	 * See README for detailed information on Open Wavetable string
@@ -43,6 +43,33 @@ int main(int argc, char** argv)
 
 	for (i = 0; i < num_bytes; i++)
 		printf("Data[%d] = 0x%02X\n", i, data[i]);
+
+	/* Open Input Force Feedback Device, path given is an example */
+	fd = open("/dev/input/event1", O_RDWR);
+	if (fd == -1) {
+		printf("Failed to open Input FF device\n");
+		return -ENOENT;
+	}
+
+	effect_id = owt_upload(data, num_bytes, fd);
+	if (effect_id < 0) {
+		printf("Failed to upload OWT effect\n");
+		return effect_id;
+	}
+
+	printf("Triggering Composite Waveform\n");
+	/* Trigger effect */
+	ret = owt_trigger(effect_id, fd, true);
+	if (ret)
+		return ret;
+
+	printf("Press any key to exit OWT trigger\n");
+	getchar();
+
+	/* Stop Playback */
+	ret = owt_trigger(effect_id, fd, false);
+	if (ret)
+		return ret;
 
 	/*
 	 * The example simple PWLE waveform is designed as follows.
@@ -76,7 +103,7 @@ int main(int argc, char** argv)
 	 * capabilities (C1:0, B1:0).
 	 * Section 1 does have amplitude regulation enabled (AR1:1)
 	 * and sets a back EMF voltage target of 0.022 V (V1:0.022).
-	 * 
+	 *
 	 * The resulting playback of triggering this waveform will be a 400 ms
 	 * buzz with a constant level and frequency. Amplitude regulation is
 	 * enabled and targets a Back EMF voltage of 0.022 V. The waveform will
@@ -91,6 +118,26 @@ int main(int argc, char** argv)
 
 	for (i = 0; i < num_bytes; i++)
 		printf("Data[%d] = 0x%02X\n", i, data[i]);
+
+	effect_id = owt_upload(data, num_bytes, fd);
+	if (effect_id < 0) {
+		printf("Failed to upload OWT effect\n");
+		return effect_id;
+	}
+
+	printf("Triggering PWLE Waveform\n");
+	/* Trigger effect */
+	ret = owt_trigger(effect_id, fd, true);
+	if (ret)
+		return ret;
+
+	printf("Press any key to exit OWT trigger\n");
+	getchar();
+
+	/* Stop Playback */
+	ret = owt_trigger(effect_id, fd, false);
+	if (ret)
+		return ret;
 
 	return 0;
 }

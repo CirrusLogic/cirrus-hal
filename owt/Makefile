@@ -1,5 +1,6 @@
 # Compiler
-CC=gcc
+# CC=gcc
+CC=arm-linux-gnueabihf-gcc
 
 # Compiler flags:
 # -I. use current directory
