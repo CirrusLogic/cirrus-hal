@@ -1,6 +1,7 @@
 # Compiler
 # CC=gcc
-CC=arm-linux-gnueabihf-gcc
+# CC=arm-linux-gnueabihf-gcc
+CC=aarch64-linux-gnu-gcc
 
 # Compiler flags:
 # -I. use current directory
