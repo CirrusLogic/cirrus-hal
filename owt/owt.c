@@ -743,7 +743,7 @@ static int wt_type12_pwle_time_entry(struct wt_type12_pwle *pwle, char *token,
 	/* Valid values from spec.: 0 ms - 16383.75 ms = infinite */
 	ret = parse_float(token, &val, 4, 0.0f, 16383.75f);
 	if (ret) {
-		printf("Fauked to parse time: %d\n", ret);
+		printf("Failed to parse time: %d\n", ret);
 		return ret;
 	}
 
@@ -807,11 +807,15 @@ static int wt_type12_pwle_freq_entry(struct wt_type12_pwle *pwle, char *token,
 {
 	int ret, val;
 
-	/* Valid values from spec.: 0.25 Hz - 1023.75 Hz */
+	/* Valid values from spec.: 0 (resonant frequency), or 0.25 Hz - 1023.75 Hz */
 	ret = parse_float(token, &val, 4, 0.25f, 1023.75f);
 	if (ret) {
-		printf("Failed to parse frequency: %d\n", ret);
-		return ret;
+		if (atoi(token) == 0)
+			val = 0;
+		else {
+			printf("Failed to parse frequency: %d\n", ret);
+			return ret;
+		}
 	}
 
 	section->frequency = val;
