@@ -21,6 +21,12 @@ This will play RAM index 3 @ 50% amplitude, waits 100 ms, plays RAM index
 3 @ 75% amplitude. This will repeat one time ('1!') for a total of 2
 playthroughs.
 
+There is also a way to add waveforms from the ROM or OWT waveform bank to
+a new OWT composite. The below examples shows how to add index 1 from OWT
+and index 2 from ROM with no repeats.
+
+'OWT1.50, ROM2.90'
+
 PWLE (Type 12) waveforms create a piecewise linear envelope wave that can
 have varying voltage level, frequency, Back EMF voltage targets, across its
 individual segments.
