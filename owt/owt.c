@@ -366,19 +366,39 @@ static enum wt_type10_comp_specifier wt_type10_comp_specifier_get(char *str)
  *
  */
 static int wt_type10_comp_waveform_get(char *str,
-				       struct wt_type10_comp_wvfrm *wave) {
-	unsigned int index_tmp, amp_tmp, duration_tmp;
+				       struct wt_type10_comp_section *section)
+{
+	struct wt_type10_comp_wvfrm *wave = &section->wvfrm;
+	unsigned int duration_tmp = 0;
+	int i = 0, j = 0;
+	unsigned int index_tmp, amp_tmp;
+	char bank[4];
 	int ret;
 
-	ret = sscanf(str, "%u.%u.%u", &index_tmp, &amp_tmp, &duration_tmp);
-	if (ret < 2) {
-		printf("Failed to parse waveform\n");
+	if (strlen(str) < 3)
 		return -EINVAL;
+
+	if (isalpha(str[i++]) && isalpha(str[i++]) && isalpha(str[i++])) {
+		/* Bank detected */
+		while (j + i < strlen(str) && isalpha(str[j + i]))
+			j++;
+		ret = sscanf(str + j, "%3s%u.%u.%u", bank, &index_tmp, &amp_tmp, &duration_tmp);
+		if (ret < 3) {
+			printf("Failed to parse waveform\n");
+			return -EINVAL;
+		}
+	} else {
+		/* No bank specified */
+		ret = sscanf(str + i - 1, "%u.%u.%u", &index_tmp, &amp_tmp, &duration_tmp);
+		if (ret < 2) {
+			printf("Failed to parse waveform\n");
+			return -EINVAL;
+		}
 	}
 
-	if (ret == 2 && index_tmp == 0) {
-		printf("Invalid waveform index: %u\n", index_tmp);
-		return -EINVAL;
+	if (strncmp(bank, "RAM", 3) && strncmp(bank, "ROM", 3) && strncmp(bank, "OWT", 3)) {
+		/* Default to RAM effect */
+		strcpy(bank, "RAM");
 	}
 
 	if (amp_tmp == 0 || amp_tmp > 100) {
@@ -386,21 +406,21 @@ static int wt_type10_comp_waveform_get(char *str,
 		return -EINVAL;
 	}
 
-	if (ret == 3) { /* All data processed */
-		if (duration_tmp != WT_INDEF_TIME_VAL) {
-			if (duration_tmp > WT_MAX_TIME_VAL) {
-				printf("Duration too long: %u ms\n", duration_tmp);
-				return -EINVAL;
-			}
-			duration_tmp *= 4;
+	if (duration_tmp != 0 && duration_tmp != WT_INDEF_TIME_VAL) {
+		if (duration_tmp > WT_MAX_TIME_VAL) {
+			printf("Duration too long: %u ms\n", duration_tmp);
+			return -EINVAL;
 		}
-	} else {
-		duration_tmp = 0;
+		duration_tmp *= 4;
 	}
 
 	wave->index = (uint8_t) (0xFF & index_tmp);
 	wave->amplitude = (uint8_t) (0xFF & amp_tmp);
 	wave->duration = (uint16_t) (0xFFFF & duration_tmp);
+	if (!strncmp(bank, "ROM", 3))
+		section->flags |= 0x40;
+	else if (!strncmp(bank, "OWT", 3))
+		section->flags |= 0x20;
 
 	return 0;
 }
@@ -493,7 +513,7 @@ static int wt_type10_comp_decode(struct wt_type10_comp *comp,
 			comp->nsections++;
 		}
 
-		ret = wt_type10_comp_waveform_get(str, &section->wvfrm);
+		ret = wt_type10_comp_waveform_get(str, section);
 		if (ret)
 			return ret;
 
