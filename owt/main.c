@@ -19,15 +19,17 @@
 int main(int argc, char** argv)
 {
 	uint8_t data[WT_TYPE12_PWLE_SINGLE_PACKED_MAX];
-	char str[WT_STR_MAX_LEN];
 	int num_bytes, i, fd, effect_id, ret;
+	char str[WT_STR_MAX_LEN];
+	struct ff_effect effect;
 
 	/*
 	 * See README for detailed information on Open Wavetable string
 	 * formatting.
 	 */
 
-	/* Composite waveform which will play RAM index 3 @ 75% amplitude,
+	/*
+	 * Composite waveform which will play RAM index 3 @ 75% amplitude,
 	 * wait 100 ms, play index 3 @50% amplitude, wait 100 ms, play index 3
 	 * @ 25% amplitude. This will be repeated once for a total of 2
 	 * playthroughs.
@@ -51,7 +53,7 @@ int main(int argc, char** argv)
 		return -ENOENT;
 	}
 
-	effect_id = owt_upload(data, num_bytes, fd);
+	effect_id = owt_upload(data, num_bytes, 0, fd, false, &effect);
 	if (effect_id < 0) {
 		printf("Failed to upload OWT effect\n");
 		return effect_id;
@@ -76,11 +78,13 @@ int main(int argc, char** argv)
 	 * S:0 is not used but is required for backwards compatibility of
 	 * this feature and distinguishing between PWLE and Composite waveform
 	 * types.
-	 * WF:0 Marks the effect as a buzz; it does not affect the behavior
+	 * WF:8 Marks the effect as a click; it does not affect the behavior
 	 * of the designed PWLE.
 	 * The entirety of the waveform will be played twice since 1 repeat
 	 * has been assigned via RP:1.
 	 * The wait time between repeats will be 399.5 ms (WT:399.5).
+	 * M:2 designates the SVC braking mode as Open Loop
+	 * K:500 sets the SVC braking time to 500 ms
 	 *
 	 * The next symbols are section specific. T0:0 indicates that section
 	 * 0 starts 0 ms after the playback begins (immediately); L0:0.49152
@@ -111,7 +115,7 @@ int main(int argc, char** argv)
 	 */
 
 	memset(str, '\0', sizeof(str));
-	strcpy(str, "S:0,WF:8,RP:1,WT:399.5,T0:0,L0:0.49152,F0:200,C0:0,B0:0,AR0:0,V0:0,T1:400,L1:0.49152,F1:200,C1:0,B1:0,AR1:1,V1:0.022");
+	strcpy(str, "S:0,WF:8,RP:1,WT:399.5,M:2,K:500,T0:0,L0:0.49152,F0:200,C0:0,B0:0,AR0:0,V0:0,T1:400,L1:0.49152,F1:200,C1:0,B1:0,AR1:1,V1:0.022");
 
 	memset(data, 0, WT_TYPE12_PWLE_SINGLE_PACKED_MAX);
 	num_bytes = get_owt_data(str, data);
@@ -119,7 +123,7 @@ int main(int argc, char** argv)
 	for (i = 0; i < num_bytes; i++)
 		printf("Data[%d] = 0x%02X\n", i, data[i]);
 
-	effect_id = owt_upload(data, num_bytes, fd);
+	effect_id = owt_upload(data, num_bytes, 0, fd, false, &effect);
 	if (effect_id < 0) {
 		printf("Failed to upload OWT effect\n");
 		return effect_id;
