@@ -16,6 +16,7 @@
 
 #include <errno.h>
 #include <math.h>
+#include <ctype.h>
 #include "owt.h"
 
 /***********/
@@ -608,6 +609,10 @@ static enum wt_type12_pwle_specifier wt_type12_pwle_specifier_get(char *str)
 		return PWLE_SPEC_AR;
 	else if (str[0] == 'V')
 		return PWLE_SPEC_VBT;
+	else if (str[0] == 'M')
+		return PWLE_SPEC_SVC_MODE;
+	else if (str[0] == 'K')
+		return PWLE_SPEC_SVC_BRAKING_TIME;
 	else
 		return PWLE_SPEC_INVALID;
 }
@@ -653,8 +658,8 @@ static int wt_type12_pwle_feature_entry(struct wt_type12_pwle *pwle,
 {
 	int val = atoi(token);
 
-	if (val > WT_TYPE12_PWLE_MAX_WVFRM_FEAT || (val % 4) != 0 || val < 0) {
-		printf("Valid waveform features are: 0, 4, 8, 12\n");
+	if (val > WT_TYPE12_PWLE_MAX_WVFRM_FEAT || val < 0) {
+		printf("Valid waveform features are: 0-255\n");
 		return -EINVAL;
 	}
 
@@ -685,6 +690,61 @@ static int wt_type12_pwle_repeat_entry(struct wt_type12_pwle *pwle, char *token)
 	}
 
 	pwle->repeat = val;
+
+	return 0;
+}
+
+/*
+ * wt_type12_pwle_svc_mode_entry() - Get SVC braking mode value from string
+ *
+ * @pwle: Pointer to struct with PWLE information
+ * @token: Portion of string being analyzed
+ *
+ * Get the SVC mode value from the PWLE string
+ *
+ * Returns 0 upon success.
+ * Returns negative errno in error case.
+ *
+ */
+static int wt_type12_pwle_svc_mode_entry(struct wt_type12_pwle *pwle, char *token)
+{
+	int val = atoi(token);
+
+	if (val < -1 || val > 3) {
+		printf("Valid SVC modes are 0 to 3, or -1 indicating none\n");
+		return -EINVAL;
+	} else if (val != -1) {
+		pwle->svc_metadata.id = 1;
+		pwle->svc_metadata.length = 1;
+		pwle->svc_metadata.mode = val;
+	}
+
+	return 0;
+}
+
+/*
+ *
+ * wt_type12_pwle_svc_braking_time_entry() - Get SVC braking time from string
+ *
+ * @pwle: Pointer to struct with PWLE information
+ * @token: Portion of string to be analyzed
+ *
+ * Get the SVC braking time from the PWLE string.
+ *
+ * Returns 0 upon success.
+ * Returns negative errno in error case.
+ *
+ */
+static int wt_type12_pwle_svc_braking_time_entry(struct wt_type12_pwle *pwle, char *token)
+{
+	int val = atoi(token);
+
+	if (val < 0 || val > WT_TYPE12_PWLE_MAX_BRAKING_TIME) {
+		printf("Valid braking time: 0 to 1000 (ms)\n");
+		return -EINVAL;
+	}
+
+	pwle->svc_metadata.braking_time = val * 8;
 
 	return 0;
 }
@@ -807,7 +867,7 @@ static int wt_type12_pwle_freq_entry(struct wt_type12_pwle *pwle, char *token,
 {
 	int ret, val;
 
-	/* Valid values from spec.: 0 (resonant frequency), or 0.25 Hz - 1023.75 Hz */
+	/* Valid values from spec.: 0 (Resonant Frequency), or 0.25 Hz - 1023.75 Hz */
 	ret = parse_float(token, &val, 4, 0.25f, 1023.75f);
 	if (ret) {
 		if (atoi(token) == 0)
@@ -872,9 +932,23 @@ static int wt_type12_pwle_vb_target_entry(struct wt_type12_pwle *pwle,
 static int wt_type12_pwle_write(struct wt_type12_pwle *pwle, void *buf,
 		int size)
 {
+	bool svc_waveform = pwle->feature & WT_TYPE12_PWLE_SVC_FLAG;
 	struct dspmem_chunk ch = dspmem_chunk_create(buf, size);
 	int i;
 
+	dspmem_chunk_write(&ch, 16, pwle->feature);
+	dspmem_chunk_write(&ch, 8, WT_TYPE12_PWLE);
+	dspmem_chunk_write(&ch, 24, WT_TYPE12_HEADER_WORDS +
+			(svc_waveform ? WT_TYPE12_SVC_METADATA_WORDS : 0));
+	dspmem_chunk_write(&ch, 24, (pwle->nsections * 2) + pwle->nampsections + 3);
+
+	if (svc_waveform) {
+		dspmem_chunk_write(&ch, 8, pwle->svc_metadata.id);
+		dspmem_chunk_write(&ch, 8, pwle->svc_metadata.length);
+		dspmem_chunk_write(&ch, 8, pwle->svc_metadata.mode);
+		dspmem_chunk_write(&ch, 24, pwle->svc_metadata.braking_time);
+		dspmem_chunk_write(&ch, 24, WT_TYPE12_METADATA_TERMINATOR);
+	}
 	dspmem_chunk_write(&ch, 24, pwle->wlength);
 	dspmem_chunk_write(&ch, 8, pwle->repeat);
 	dspmem_chunk_write(&ch, 12, pwle->wait);
@@ -884,7 +958,7 @@ static int wt_type12_pwle_write(struct wt_type12_pwle *pwle, void *buf,
 		dspmem_chunk_write(&ch, 16, pwle->sections[i].time);
 		dspmem_chunk_write(&ch, 12, pwle->sections[i].level);
 		dspmem_chunk_write(&ch, 12, pwle->sections[i].frequency);
-		dspmem_chunk_write(&ch, 8, pwle->sections[i].flags);
+		dspmem_chunk_write(&ch, 8, (pwle->sections[i].flags | 1) << 4);
 
 		if (pwle->sections[i].flags & WT_TYPE12_PWLE_AMP_REG_BIT)
 			dspmem_chunk_write(&ch, 24, pwle->sections[i].vbtarget);
@@ -969,8 +1043,28 @@ static int wt_type12_pwle_str_to_bin(char *full_str, uint8_t *data)
 			if (ret)
 				return ret;
 			break;
+		case PWLE_SPEC_SVC_MODE:
+			if (num_vals != 4) {
+				printf("Malformed PWLE, incorrect M slot\n");
+				return -EINVAL;
+			}
+
+			ret = wt_type12_pwle_svc_mode_entry(&pwle, str);
+			if (ret)
+				return ret;
+			break;
+		case PWLE_SPEC_SVC_BRAKING_TIME:
+			if (num_vals != 5) {
+				printf("Malformed PWLE, incorrect K slot\n");
+				return -EINVAL;
+			}
+
+			ret = wt_type12_pwle_svc_braking_time_entry(&pwle, str);
+			if (ret)
+				return ret;
+			break;
 		case PWLE_SPEC_TIME:
-			if (num_vals > 4) {
+			if (num_vals > PWLE_SPEC_NUM_VALS) {
 				/* Verify complete previous segment */
 				if (!t || !l || !f || !c || !b || !a || !v) {
 					printf("PWLE Missing entry in seg %d\n",
@@ -1038,8 +1132,10 @@ static int wt_type12_pwle_str_to_bin(char *full_str, uint8_t *data)
 				return -EINVAL;
 			}
 
-			if (val)
+			if (val) {
 				section->flags |= WT_TYPE12_PWLE_AMP_REG_BIT;
+				pwle.nampsections++;
+			}
 
 			a = true;
 			break;

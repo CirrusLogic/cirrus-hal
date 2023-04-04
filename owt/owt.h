@@ -43,18 +43,26 @@
 
 #define WT_TYPE10_COMP_DURATION_FLAG	0x80
 
-#define WT_TYPE12_PWLE_TOTAL_VALS	1787
-#define WT_TYPE12_PWLE_MAX_SEG_BYTES	9
-#define WT_TYPE12_PWLE_NON_SEG_BYTES	7
-#define WT_TYPE12_PWLE_BYTES_MAX	2302
+#define WT_TYPE12_PWLE_TOTAL_VALS		1787
+#define WT_TYPE12_PWLE_MAX_SEG_BYTES		9
+#define WT_TYPE12_PWLE_NON_SEG_BYTES		7
+#define WT_TYPE12_PWLE_BYTES_MAX		2302
 #define WT_TYPE12_PWLE_MAX_RP_VAL		255
-#define WT_TYPE12_PWLE_INDEF_TIME_VAL	65535
-#define WT_TYPE12_PWLE_MAX_WVFRM_FEAT	12
-#define WT_TYPE12_PWLE_WVFRM_FT_SHFT	20
+#define WT_TYPE12_PWLE_INDEF_TIME_VAL		65535
+#define WT_TYPE12_PWLE_MAX_WVFRM_FEAT		255
+#define WT_TYPE12_PWLE_WVFRM_FT_SHFT		8
 #define WT_TYPE12_PWLE_CHIRP_BIT		0x8
 #define WT_TYPE12_PWLE_BRAKE_BIT		0x4
-#define WT_TYPE12_PWLE_AMP_REG_BIT	0x2
+#define WT_TYPE12_PWLE_AMP_REG_BIT		0x2
 #define WT_TYPE12_PWLE_SINGLE_PACKED_MAX	1152
+#define WT_TYPE12_PWLE_MAX_BRAKING_TIME		1000 /* ms */
+#define WT_TYPE12_PWLE				12
+#define WT_TYPE12_HEADER_WORDS			3
+#define WT_TYPE12_SVC_METADATA_WORDS		3
+
+#define WT_TYPE12_PWLE_SVC_FLAG			(1 << 10)
+
+#define WT_TYPE12_METADATA_TERMINATOR		0xFFFFFF
 
 
 /* enums */
@@ -63,6 +71,9 @@ enum wt_type12_pwle_specifier {
 	PWLE_SPEC_FEATURE,
 	PWLE_SPEC_REPEAT,
 	PWLE_SPEC_WAIT,
+	PWLE_SPEC_SVC_MODE,
+	PWLE_SPEC_SVC_BRAKING_TIME,
+	PWLE_SPEC_NUM_VALS,
 	PWLE_SPEC_TIME,
 	PWLE_SPEC_LEVEL,
 	PWLE_SPEC_FREQ,
@@ -108,15 +119,24 @@ struct wt_type12_pwle_section {
 	uint32_t vbtarget;
 };
 
+struct wt_type12_svc_metadata {
+	uint8_t id;
+	uint8_t length;
+	uint8_t mode;
+	uint32_t braking_time;
+};
+
 struct wt_type12_pwle {
-	unsigned int feature;
+	uint16_t feature;
 	unsigned int str_len;
 	uint32_t wlength;
 	uint8_t repeat;
 	uint16_t wait;
 	uint8_t nsections;
+	double nampsections;
 	int fd;
 
+	struct wt_type12_svc_metadata svc_metadata;
 	struct wt_type12_pwle_section sections[WT_MAX_SECTIONS];
 };
 
