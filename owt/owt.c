@@ -195,6 +195,16 @@ static int dspmem_chunk_flush(struct dspmem_chunk *ch)
 	return dspmem_chunk_write(ch, 24 - ch->cachebits, 0);
 }
 
+uint16_t gpi_config(bool rising_edge, unsigned int gpi)
+{
+	uint16_t cfg = 0;
+
+	cfg |= (rising_edge << WVFRM_EDGE_SHIFT);
+	cfg |= (gpi & WVFRM_GPI_MASK) << WVFRM_GPI_SHIFT;
+
+	return cfg;
+}
+
 /*************************************/
 /* Input Force Feedback Interactions */
 /*************************************/
@@ -204,44 +214,54 @@ static int dspmem_chunk_flush(struct dspmem_chunk *ch)
  *
  * @data: Pointer to data to be written
  * @num_bytes: Size of data in bytes
+ * @gpi: Value to tie to GPI
  * @fd: File descriptor corresponding to the open Input FF Device
+ * @effect: Pointer to effect struct being uploaded
  *
  * Returns effect ID upon success.
  * Return negative errno on failure.
  *
  */
-int owt_upload(uint8_t *data, uint32_t num_bytes, int fd)
+int owt_upload(uint8_t *data, uint32_t num_bytes, int gpi, int fd, bool edit,
+		struct ff_effect *effect)
 {
-	struct ff_effect effect;
-	int ret;
+	int ret = 0;
 
-	effect.id = -1; /* New Effect */
-	effect.type = FF_PERIODIC;
-	effect.u.periodic.waveform = FF_CUSTOM;
-	effect.replay.length = 0; /* Reserved value for OWT waveforms */
-	effect.u.periodic.custom_len = num_bytes / 2; /* # of 16-bit elements */
-	effect.u.periodic.custom_data =
+	if (!edit) {
+		effect->id = -1; /* New Effect */
+		effect->type = FF_PERIODIC;
+		effect->u.periodic.waveform = FF_CUSTOM;
+		effect->replay.length = 0; /* Reserved value for OWT */
+	}
+
+	if (gpi)
+		effect->trigger.button = gpi_config((gpi >= 0), abs(gpi));
+	else
+		effect->trigger.button = 0;
+
+	effect->direction = 0;
+	effect->u.periodic.custom_len = num_bytes / 2; /* # of 16-bit elements */
+	effect->u.periodic.custom_data =
 			(int16_t *) malloc(sizeof(int16_t) *
-			effect.u.periodic.custom_len);
-	if (effect.u.periodic.custom_data == NULL) {
+			effect->u.periodic.custom_len);
+	if (effect->u.periodic.custom_data == NULL) {
 		printf("Failed to allocate memory for custom data\n");
 		return -ENOMEM;
 	}
 
-	memcpy(effect.u.periodic.custom_data, data, num_bytes);
+	memcpy(effect->u.periodic.custom_data, data, num_bytes);
 
 	fflush(stdout);
-	if (ioctl(fd, EVIOCSFF, &effect) == -1) {
+	if (ioctl(fd, EVIOCSFF, effect) == -1) {
 		printf("Failed to upload waveform\n");
 		ret = -ENXIO;
 		goto err_free;
 	}
 
-	printf("Successfully uploaded OWT effect with ID = %d\n", effect.id);
-	ret = effect.id;
-
+	printf("Successfully uploaded OWT effect with ID = %d\n", effect->id);
+	return effect->id;
 err_free:
-	free(effect.u.periodic.custom_data);
+	free(effect->u.periodic.custom_data);
 
 	return ret;
 }

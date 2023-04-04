@@ -64,6 +64,12 @@
 
 #define WT_TYPE12_METADATA_TERMINATOR		0xFFFFFF
 
+#define WVFRM_INDEX_MASK	0x7F
+#define WVFRM_BUZZ_SHIFT	7
+#define WVFRM_BANK_SHIFT	8
+#define WVFRM_GPI_MASK		0x7
+#define WVFRM_GPI_SHIFT		12
+#define WVFRM_EDGE_SHIFT	15
 
 /* enums */
 enum wt_type12_pwle_specifier {
@@ -163,6 +169,7 @@ struct wt_type10_comp {
 };
 
 /* Function Prototypes */
+uint16_t gpi_config(bool, unsigned int);
 int get_owt_data(char *, uint8_t *);
-int owt_upload(uint8_t *, uint32_t, int);
+int owt_upload(uint8_t *, uint32_t, int, int, bool, struct ff_effect *);
 int owt_trigger(int, int, bool);
