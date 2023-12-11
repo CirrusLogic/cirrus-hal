@@ -1,5 +1,5 @@
 /*
- * Copyright 2021 Cirrus Logic Inc.
+ * Copyright 2023 Cirrus Logic Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,28 +14,28 @@
  * limitations under the License.
  */
 
+#include <fcntl.h>
 #include "owt.h"
 
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
 	uint8_t data[WT_TYPE12_PWLE_SINGLE_PACKED_MAX];
-	int num_bytes, i, fd, effect_id, ret;
 	char str[WT_STR_MAX_LEN];
+	int num_bytes, i, fd, ret;
 	struct ff_effect effect;
 
 	/*
-	 * See README for detailed information on Open Wavetable string
-	 * formatting.
-	 */
-
-	/*
-	 * Composite waveform which will play RAM index 3 @ 75% amplitude,
-	 * wait 100 ms, play index 3 @50% amplitude, wait 100 ms, play index 3
-	 * @ 25% amplitude. This will be repeated once for a total of 2
-	 * playthroughs.
+	 * This composite string will result in index 1 from the RAM wavetable being played at 100%
+	 * intensity followed by a 500 ms delay, then index 2 from the ROM wavetable would be
+	 * played at 100% intensity followed by a 400 ms delay. Waveforms at index 3 from ROM at
+	 * 50%, 75%, and 100% are played with a 50 ms delay between them. The 1!! marker denotes
+	 * that this section is repeated once for a total of 2 playthroughs. Finally, 2! marks that
+	 * the entire string will play 2 more times for a total of 3 playthroughs. The driver
+	 * calculates the duration based on the binary information provided by the Userspace
+	 * program and plays the composite waveform in its entirety unless interrupted by the user.
 	 */
 	memset(str, '\0', sizeof(str));
-	strcpy(str, "3.75, 100, 3.50, 100, 3.25, 100, 1!");
+	strcpy(str, "1.100, 500, ROM2.100, 400, !!, ROM3.50, 50, ROM3.75, 50, ROM3.100, 50, 1!!, 2!");
 
 	num_bytes = get_owt_data(str, data);
 	if (num_bytes <= 0) {
@@ -50,18 +50,18 @@ int main(int argc, char** argv)
 	fd = open("/dev/input/event1", O_RDWR);
 	if (fd == -1) {
 		printf("Failed to open Input FF device\n");
-		return -ENOENT;
+		return -1;
 	}
 
-	effect_id = owt_upload(data, num_bytes, 0, fd, false, &effect);
-	if (effect_id < 0) {
+	ret = owt_upload(data, num_bytes, 0, fd, false, &effect);
+	if (ret < 0) {
 		printf("Failed to upload OWT effect\n");
-		return effect_id;
+		return ret;
 	}
 
 	printf("Triggering Composite Waveform\n");
 	/* Trigger effect */
-	ret = owt_trigger(effect_id, fd, true);
+	ret = owt_trigger(effect.id, fd, true);
 	if (ret)
 		return ret;
 
@@ -69,53 +69,38 @@ int main(int argc, char** argv)
 	getchar();
 
 	/* Stop Playback */
-	ret = owt_trigger(effect_id, fd, false);
+	ret = owt_trigger(effect.id, fd, false);
 	if (ret)
 		return ret;
 
 	/*
 	 * The example simple PWLE waveform is designed as follows.
-	 * S:0 is not used but is required for backwards compatibility of
-	 * this feature and distinguishing between PWLE and Composite waveform
-	 * types.
-	 * WF:8 Marks the effect as a click; it does not affect the behavior
-	 * of the designed PWLE.
-	 * The entirety of the waveform will be played twice since 1 repeat
-	 * has been assigned via RP:1.
-	 * The wait time between repeats will be 399.5 ms (WT:399.5).
-	 * M:2 designates the SVC braking mode as Open Loop
-	 * K:500 sets the SVC braking time to 500 ms
+	 * S:0 is a placeholder for CS40L26, this value could also be S:1 and would have no effect
+	 * as all OWT waveforms are written to RAM. WF:0 marks the effect as a buzz; this is the
+	 * information used by other waveforms, and it does not affect the behavior of the designed
+	 * PWLE. The entirety of the PWLE will be played twice since one repeat has been assigned
+	 * via RP:1. The wait time between repeats will be 399.5 ms (WT:399.5). M:-1 and K:0
+	 * indicates that SVC braking will not be in use, and the braking time will be ignored.
 	 *
-	 * The next symbols are section specific. T0:0 indicates that section
-	 * 0 starts 0 ms after the playback begins (immediately); L0:0.49152
-	 * gives the intensity level of section 0. This section will play at
-	 * 200 Hz and is not designated as a chirp, meaning the frequency will
-	 * be constant; these parameters are set with F0:200 and C0:0.
-	 * B0:0 indicates there is no braking this is similar to the 'S'
-	 * parameter in that it has no effect but must be a valid value for
-	 * completeness.
-	 * Section 0 does not define amplitude regulation: A0:0, V0:0.
+	 * The next symbols are section specific. T0:0 indicates that section 0 starts at 0 ms;
+	 * L0:0.49152 gives the intensity level of section 0. This section will play at 200 Hz and
+	 * is not designated as a chirp, meaning the frequency will be constant; these parameters
+	 * are set with F0:200 and C0:0. Rounding out section 0’s parameters, B0:0 indicates that
+	 * there is no braking but, as mentioned in the above table, this value has no effect for
+	 * CS40L26. R0:0 indicates that no offset be applied to the resonant frequency. Furthermore,
+	 * section 0 will not be using amplitude regulation: A0:0, V0:0.
 	 *
-	 * Section 1 is the final section of this PWLE waveform. The parameters
-	 * describe the end target values for those provided in section 0.
-	 *
-	 * The string enables section 1 at 400 ms, which means, since it is the
-	 * final section, that one play through of this waveform is 400 ms.
-	 * T1:400.
-	 * The frequency and intensity level are the same as section 0:
-	 * L1:0.49152, F1:200 and once again there is no braking or chirp
-	 * capabilities (C1:0, B1:0).
-	 * Section 1 does have amplitude regulation enabled (AR1:1)
-	 * and sets a back EMF voltage target of 0.022 V (V1:0.022).
-	 *
-	 * The resulting playback of triggering this waveform will be a 400 ms
-	 * buzz with a constant level and frequency. Amplitude regulation is
-	 * enabled and targets a Back EMF voltage of 0.022 V. The waveform will
-	 * repeat once.
+	 * Section 1 is the final section of the PWLE waveform. The string enables section 1 at
+	 * 400 ms (400 ms after section 0 was started) T1:400. The frequency and intensity level
+	 * remains the same as the previous section with L1:0.49152, F1:200 and once again there
+	 * are no braking or chirp capabilities (C1:0, B1:0); recall that braking has no effect on
+	 * CS40L26. Section 1 does have amplitude regulation enabled (AR1:1) and sets a back EMF
+	 * voltage target of 0.022 V (V1:0.022).
 	 */
 
 	memset(str, '\0', sizeof(str));
-	strcpy(str, "S:0,WF:8,RP:1,WT:399.5,M:2,K:500,T0:0,L0:0.49152,F0:200,C0:0,B0:0,AR0:0,V0:0,T1:400,L1:0.49152,F1:200,C1:0,B1:0,AR1:1,V1:0.022");
+	strcpy(str, "S:0,WF:0,RP:1,WT:399.5,M:-1,K:0,T0:0,L0:0.49152,F0:200,C0:0,B0:0,AR0:0,R0:0,\
+	       V0:0,T1:400,L1:0.49152,F1:200,C1:0,B1:0,AR1:1,R1:0,V1:0.022");
 
 	memset(data, 0, WT_TYPE12_PWLE_SINGLE_PACKED_MAX);
 	num_bytes = get_owt_data(str, data);
@@ -123,15 +108,15 @@ int main(int argc, char** argv)
 	for (i = 0; i < num_bytes; i++)
 		printf("Data[%d] = 0x%02X\n", i, data[i]);
 
-	effect_id = owt_upload(data, num_bytes, 0, fd, false, &effect);
-	if (effect_id < 0) {
+	ret = owt_upload(data, num_bytes, 0, fd, false, &effect);
+	if (ret < 0) {
 		printf("Failed to upload OWT effect\n");
-		return effect_id;
+		return ret;
 	}
 
 	printf("Triggering PWLE Waveform\n");
 	/* Trigger effect */
-	ret = owt_trigger(effect_id, fd, true);
+	ret = owt_trigger(effect.id, fd, true);
 	if (ret)
 		return ret;
 
@@ -139,7 +124,7 @@ int main(int argc, char** argv)
 	getchar();
 
 	/* Stop Playback */
-	ret = owt_trigger(effect_id, fd, false);
+	ret = owt_trigger(effect.id, fd, false);
 	if (ret)
 		return ret;
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2021 Cirrus Logic Inc.
+ * Copyright 2023 Cirrus Logic Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,35 +14,29 @@
  * limitations under the License.
  */
 
-#include <linux/errno.h>
 #include <linux/input.h>
-#include <linux/kernel.h>
 #include <stdio.h>
-#include <fcntl.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
-#include <sys/ioctl.h>
-#include <sys/stat.h>
 #include <stdint.h>
 
 #define WT_STR_MAX_LEN		512
-#define WT_MAX_SEGMENTS		512
 #define WT_MAX_SECTIONS		256
 #define WT_MAX_DELAY		10000
-#define WT_MAX_FINITE_REPEAT	32
 #define WT_INDEFINITE		0x00400000
 #define WT_LEN_CALCD		0x00800000
-
 #define WT_REPEAT_LOOP_MARKER	0xFF
 #define WT_INDEF_TIME_VAL	0xFFFF
 #define WT_MAX_TIME_VAL		16383 /* ms */
 
 #define WT_TYPE10_COMP_SEG_LEN_MAX	20
-
 #define WT_TYPE10_COMP_DURATION_FLAG	0x80
 
+#define WT_TYPE12_HEADER_WORDS			3
+#define WT_TYPE12_SVC_METADATA_WORDS		3
+#define WT_TYPE12_METADATA_TERMINATOR		0xFFFFFF
 #define WT_TYPE12_PWLE_TOTAL_VALS		1787
 #define WT_TYPE12_PWLE_MAX_SEG_BYTES		9
 #define WT_TYPE12_PWLE_NON_SEG_BYTES		7
@@ -51,27 +45,22 @@
 #define WT_TYPE12_PWLE_INDEF_TIME_VAL		65535
 #define WT_TYPE12_PWLE_MAX_WVFRM_FEAT		255
 #define WT_TYPE12_PWLE_WVFRM_FT_SHFT		8
-#define WT_TYPE12_PWLE_CHIRP_BIT		0x8
-#define WT_TYPE12_PWLE_BRAKE_BIT		0x4
-#define WT_TYPE12_PWLE_AMP_REG_BIT		0x2
+#define WT_TYPE12_PWLE_SVC_FLAG			(1 << 10)
+#define WT_TYPE12_PWLE_CHIRP_BIT		(1 << 7)
+#define WT_TYPE12_PWLE_BRAKE_BIT		(1 << 6)
+#define WT_TYPE12_PWLE_AMP_REG_BIT		(1 << 5)
+#define WT_TYPE12_PWLE_EXT_FREQ_BIT		(1 << 4)
+#define WT_TYPE12_PWLE_REL_FREQ_BIT		(1 << 3)
 #define WT_TYPE12_PWLE_SINGLE_PACKED_MAX	1152
 #define WT_TYPE12_PWLE_MAX_BRAKING_TIME		1000 /* ms */
 #define WT_TYPE12_PWLE				12
-#define WT_TYPE12_HEADER_WORDS			3
-#define WT_TYPE12_SVC_METADATA_WORDS		3
-
-#define WT_TYPE12_PWLE_SVC_FLAG			(1 << 10)
-
-#define WT_TYPE12_METADATA_TERMINATOR		0xFFFFFF
 
 #define WVFRM_INDEX_MASK	0x7F
 #define WVFRM_BUZZ_SHIFT	7
-#define WVFRM_BANK_SHIFT	8
 #define WVFRM_GPI_MASK		0x7
 #define WVFRM_GPI_SHIFT		12
 #define WVFRM_EDGE_SHIFT	15
 
-/* enums */
 enum wt_type12_pwle_specifier {
 	PWLE_SPEC_SAVE,
 	PWLE_SPEC_FEATURE,
@@ -87,14 +76,8 @@ enum wt_type12_pwle_specifier {
 	PWLE_SPEC_BRAKE,
 	PWLE_SPEC_AR,
 	PWLE_SPEC_VBT,
+	PWLE_SPEC_RELFREQ,
 	PWLE_SPEC_INVALID,
-};
-
-enum wt_type10_comp_info {
-	COMP_INFO_FLAGS_REPEAT,
-	COMP_INFO_INDEX,
-	COMP_INFO_DELAY,
-	COMP_INFO_DURATION,
 };
 
 enum wt_type10_comp_specifier {
@@ -107,7 +90,6 @@ enum wt_type10_comp_specifier {
 	COMP_SPEC_INVALID,
 };
 
-/* structs */
 struct dspmem_chunk {
 	uint8_t *data;
 	uint8_t *max;
@@ -140,7 +122,6 @@ struct wt_type12_pwle {
 	uint16_t wait;
 	uint8_t nsections;
 	double nampsections;
-	int fd;
 
 	struct wt_type12_svc_metadata svc_metadata;
 	struct wt_type12_pwle_section sections[WT_MAX_SECTIONS];
@@ -168,8 +149,55 @@ struct wt_type10_comp {
 	struct wt_type10_comp_section sections[WT_MAX_SECTIONS];
 };
 
-/* Function Prototypes */
-uint16_t gpi_config(bool, unsigned int);
-int get_owt_data(char *, uint8_t *);
-int owt_upload(uint8_t *, uint32_t, int, int, bool, struct ff_effect *);
-int owt_trigger(int, int, bool);
+/*
+ * dspmem_chunk_create() - Create dspmem_chunk struct for given buffer
+ *
+ * @data: Buffer to be associated with dspmem_chunk struct
+ * @size: Size of data buffer in bytes
+ *
+ * Returns dspmem_chunk struct whose data pointer is the same as the provided
+ * @data buffer with a max value at the expected size.
+ *
+ */
+static inline struct dspmem_chunk dspmem_chunk_create(void *data, int size)
+{
+	struct dspmem_chunk ch = {
+		.data = data,
+		.max = data + size,
+	};
+
+	return ch;
+}
+
+/*
+ * dspmem_chunk_end() - Check if dspmem_chunk struct is full
+ *
+ * @ch: Pointer to dspmem_chunk struct
+ *
+ * Returns true if @ch's data buffer is full.
+ * Returns false if @ch's data buffer is not full.
+ *
+ */
+static inline bool dspmem_chunk_end(struct dspmem_chunk *ch)
+{
+	return ch->data == ch->max;
+}
+
+/*
+ * dspmem_chunk_bytes() - Get number of bytes in dspmem_chunk struct data
+ *
+ * @ch: Pointer to dspmem_chunk struct
+ *
+ * Returns number of bytes in @ch's data field.
+ *
+ */
+static inline int dspmem_chunk_bytes(struct dspmem_chunk *ch)
+{
+	return ch->bytes;
+}
+
+uint16_t gpi_config(bool rising_edge, unsigned int gpi);
+int get_owt_data(char *full_str, uint8_t *data);
+int owt_upload(uint8_t *data, uint32_t num_bytes, int gpi, int fd, bool edit, struct ff_effect *effect);
+int owt_trigger(int effect_id, int fd, bool play);
+void owt_version_show(void);

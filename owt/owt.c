@@ -1,5 +1,5 @@
 /*
- * Copyright 2021 Cirrus Logic Inc.
+ * Copyright 2023 Cirrus Logic Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,9 +19,7 @@
 #include <ctype.h>
 #include "owt.h"
 
-/***********/
-/* General */
-/***********/
+#define min(x, y)	(((x) < (y)) ? (x) : (y))
 
 /*
  * strnchr() - Find character in a given string
@@ -45,19 +43,6 @@ static char *strnchr(const char *s, unsigned int count, int c)
 			break;
 	}
 	return NULL;
-}
-
-/*
- * min() - Find smaller of two integers
- *
- * @x: First integer to compare
- * @y: Second integer to compare
- *
- * Returns smaller value between @x and @y.
- *
- */
-static int min(int x, int y) {
-	return x < y ? x : y;
 }
 
 /*
@@ -88,56 +73,6 @@ static int parse_float(char *frac, int *result, int scale, float min, float max)
 	*result = roundf(fres * scale);
 
 	return 0;
-}
-
-/************************/
-/* Memchunk Formatting */
-/************************/
-
-/*
- * dspmem_chunk_create() - Create dspmem_chunk struct for given buffer
- *
- * @data: Buffer to be associated with dspmem_chunk struct
- * @size: Size of data buffer in bytes
- *
- * Returns dspmem_chunk struct whose data pointer is the same as the provided
- * @data buffer with a max value at the expected size.
- *
- */
-static struct dspmem_chunk dspmem_chunk_create(void *data, int size)
-{
-	struct dspmem_chunk ch = {
-		.data = data,
-		.max = data + size,
-	};
-
-	return ch;
-}
-
-/*
- * dspmem_chunk_end() - Check if dspmem_chunk struct is full
- *
- * @ch: Pointer to dspmem_chunk struct
- *
- * Returns true if @ch's data buffer is full.
- * Returns false if @ch's data buffer is not full.
- *
- */
-static bool dspmem_chunk_end(struct dspmem_chunk *ch) {
-	return ch->data == ch->max;
-}
-
-/*
- * dspmem_chunk_bytes() - Get number of bytes in dspmem_chunk struct data
- *
- * @ch: Pointer to dspmem_chunk struct
- *
- * Returns number of bytes in @ch's data field.
- *
- */
-static int dspmem_chunk_bytes(struct dspmem_chunk *ch)
-{
-	return ch->bytes;
 }
 
 /*
@@ -204,10 +139,6 @@ uint16_t gpi_config(bool rising_edge, unsigned int gpi)
 
 	return cfg;
 }
-
-/*************************************/
-/* Input Force Feedback Interactions */
-/*************************************/
 
 /*
  * owt_upload() - Upload the Open Wavetable Waveform via Input FF
@@ -287,7 +218,7 @@ int owt_trigger(int effect_id, int fd, bool play)
 	event.code = effect_id;
 
 	fflush(stdout);
-	if ((write(fd, (const void*) &event, sizeof(event))) == -1 ) {
+	if ((write(fd, (const void *) &event, sizeof(event))) == -1) {
 		printf("Could not %s effect\n", play ? "play" : "stop");
 		return -ENXIO;
 	}
@@ -653,6 +584,8 @@ static enum wt_type12_pwle_specifier wt_type12_pwle_specifier_get(char *str)
 		return PWLE_SPEC_SVC_MODE;
 	else if (str[0] == 'K')
 		return PWLE_SPEC_SVC_BRAKING_TIME;
+	else if (str[0] == 'R')
+		return PWLE_SPEC_RELFREQ;
 	else
 		return PWLE_SPEC_INVALID;
 }
@@ -673,12 +606,12 @@ static int wt_type12_pwle_save_entry(char *token)
 {
 	int val = atoi(token);
 
-	if (val == 1 || val == 0) {
+	if (val == 1 || val == 0)
 		return 0;
-	} else {
-		printf("Save value must be 0 or 1\n");
-		return -EINVAL;
-	}
+
+	printf("Save value must be 0 or 1\n");
+
+	return -EINVAL;
 }
 
 /*
@@ -735,12 +668,12 @@ static int wt_type12_pwle_repeat_entry(struct wt_type12_pwle *pwle, char *token)
 }
 
 /*
- * wt_type12_pwle_svc_mode_entry() - Get SVC braking mode value from string
+ * wt_type12_pwle_svc_entry() - Get SVC braking mode value from string
  *
  * @pwle: Pointer to struct with PWLE information
  * @token: Portion of string being analyzed
  *
- * Get the SVC mode value from the PWLE string
+ * Get the SVC mode value from the PWLE string.
  *
  * Returns 0 upon success.
  * Returns negative errno in error case.
@@ -763,13 +696,12 @@ static int wt_type12_pwle_svc_mode_entry(struct wt_type12_pwle *pwle, char *toke
 }
 
 /*
- *
- * wt_type12_pwle_svc_braking_time_entry() - Get SVC braking time from string
+ * wt_type12_pwle_svc_entry() - Get SVC braking mode value from string
  *
  * @pwle: Pointer to struct with PWLE information
- * @token: Portion of string to be analyzed
+ * @token: Portion of string being analyzed
  *
- * Get the SVC braking time from the PWLE string.
+ * Get the SVC mode value from the PWLE string.
  *
  * Returns 0 upon success.
  * Returns negative errno in error case.
@@ -902,20 +834,36 @@ static int wt_type12_pwle_level_entry(struct wt_type12_pwle *pwle, char *token,
  * Returns negative errno in error case.
  *
  */
-static int wt_type12_pwle_freq_entry(struct wt_type12_pwle *pwle, char *token,
+static int wt_type12_pwle_freq_entry(struct wt_type12_pwle *pwle, char *token, char *freq_val,
 		struct wt_type12_pwle_section *section)
 {
-	int ret, val;
+	int ret, rel_val, val;
 
-	/* Valid values from spec.: 0 (Resonant Frequency), or 0.25 Hz - 1023.75 Hz */
-	ret = parse_float(token, &val, 4, 0.25f, 1023.75f);
-	if (ret) {
-		if (atoi(token) == 0)
-			val = 0;
-		else {
-			printf("Failed to parse frequency: %d\n", ret);
+	rel_val = atoi(token);
+
+	if (rel_val == 0) {
+		/* Frequency is 0 (Resonant Frequency), or 0.25 Hz - 1023.75 Hz */
+		ret = parse_float(freq_val, &val, 4, 0.25f, 1023.75f);
+		if (ret) {
+			if (atoi(freq_val) == 0)
+				val = 0;
+			else {
+				printf("Failed to parse frequency: %d\nValid values are 0, or 0.25 - 1023.75\n", ret);
+				return ret;
+			}
+		}
+		section->flags |= WT_TYPE12_PWLE_EXT_FREQ_BIT;
+	} else if (rel_val == 1) {
+		/* Frequency is -512.00 Hz - 511.75 Hz */
+		ret = parse_float(freq_val, &val, 4, -512.0f, 511.75f);
+		if (ret) {
+			printf("Failed to parse relative frequency: %d\nValid values are -512.0 - 511.75\n", ret);
 			return ret;
 		}
+		section->flags |= WT_TYPE12_PWLE_REL_FREQ_BIT;
+	} else {
+		printf("Valid relative frequency setting: 0 or 1\n");
+		return -EINVAL;
 	}
 
 	section->frequency = val;
@@ -1024,14 +972,14 @@ static int wt_type12_pwle_write(struct wt_type12_pwle *pwle, void *buf,
  */
 static int wt_type12_pwle_str_to_bin(char *full_str, uint8_t *data)
 {
-	bool t = false, l = false, f = false, c = false, b = false, a = false;
+	bool t = false, l = false, f = false, c = false, b = false, a = false, r = false;
 	bool v = false, indef = false;
 	unsigned int num_vals = 0, num_segs = 0;
 	char delim[] = ",\n";
 	int ret = 0, val;
 	struct wt_type12_pwle_section *section;
 	struct wt_type12_pwle pwle;
-	char *str;
+	char *str, *freq_val;
 
 	pwle.wlength = 0;
 	section = pwle.sections;
@@ -1095,7 +1043,7 @@ static int wt_type12_pwle_str_to_bin(char *full_str, uint8_t *data)
 			break;
 		case PWLE_SPEC_SVC_BRAKING_TIME:
 			if (num_vals != 5) {
-				printf("Malformed PWLE, incorrect K slot\n");
+				printf("Malforned PWLE, incorrect K slot\n");
 				return -EINVAL;
 			}
 
@@ -1135,10 +1083,7 @@ static int wt_type12_pwle_str_to_bin(char *full_str, uint8_t *data)
 			l = true;
 			break;
 		case PWLE_SPEC_FREQ:
-			ret = wt_type12_pwle_freq_entry(&pwle, str, section);
-			if (ret)
-				return ret;
-
+			freq_val = str;
 			f = true;
 			break;
 		case PWLE_SPEC_CHIRP:
@@ -1179,6 +1124,13 @@ static int wt_type12_pwle_str_to_bin(char *full_str, uint8_t *data)
 
 			a = true;
 			break;
+		case PWLE_SPEC_RELFREQ:
+			ret = wt_type12_pwle_freq_entry(&pwle, str, freq_val, section);
+			if (ret)
+				return ret;
+
+			r = true;
+			break;
 		case PWLE_SPEC_VBT:
 			if (section->flags & WT_TYPE12_PWLE_AMP_REG_BIT) {
 				ret = wt_type12_pwle_vb_target_entry(&pwle,
@@ -1202,7 +1154,7 @@ static int wt_type12_pwle_str_to_bin(char *full_str, uint8_t *data)
 	}
 
 	/* Verify last segment was complete */
-	if (!t || !l || !f || !c || !b || !a || !v) {
+	if (!t || !l || !f || !c || !b || !a || !v || !r) {
 		printf("Malformed PWLE: Missing entry in seg %d\n",
 				(num_segs - 1));
 		return -EINVAL;
@@ -1249,4 +1201,15 @@ int get_owt_data(char *full_str, uint8_t *data)
 		num_bytes =  wt_type10_comp_str_to_bin(full_str, data);
 
 	return num_bytes;
+}
+
+/*
+ * owt_version_show() - Displays OWT library version information
+ *
+ * Displays the OWT library version in [MAJOR].[MINOR].[PATCH] format
+ *
+ */
+void owt_version_show(void)
+{
+	printf("1.1.1\n");
 }
