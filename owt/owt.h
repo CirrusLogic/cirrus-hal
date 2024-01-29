@@ -30,12 +30,14 @@
 #define WT_REPEAT_LOOP_MARKER	0xFF
 #define WT_INDEF_TIME_VAL	0xFFFF
 #define WT_MAX_TIME_VAL		16383 /* ms */
+#define WT_SVC_METADATA_ID	1
+#define WT_EP_METADATA_ID	2
 
+#define WT_TYPE10_COMP_METADATA_LEN	2
 #define WT_TYPE10_COMP_SEG_LEN_MAX	20
 #define WT_TYPE10_COMP_DURATION_FLAG	0x80
 
 #define WT_TYPE12_HEADER_WORDS			3
-#define WT_TYPE12_SVC_METADATA_WORDS		3
 #define WT_TYPE12_METADATA_TERMINATOR		0xFFFFFF
 #define WT_TYPE12_PWLE_TOTAL_VALS		1787
 #define WT_TYPE12_PWLE_MAX_SEG_BYTES		9
@@ -45,7 +47,7 @@
 #define WT_TYPE12_PWLE_INDEF_TIME_VAL		65535
 #define WT_TYPE12_PWLE_MAX_WVFRM_FEAT		255
 #define WT_TYPE12_PWLE_WVFRM_FT_SHFT		8
-#define WT_TYPE12_PWLE_SVC_FLAG			(1 << 10)
+#define WT_TYPE12_PWLE_METADATA_FLAG		(1 << 10)
 #define WT_TYPE12_PWLE_CHIRP_BIT		(1 << 7)
 #define WT_TYPE12_PWLE_BRAKE_BIT		(1 << 6)
 #define WT_TYPE12_PWLE_AMP_REG_BIT		(1 << 5)
@@ -68,6 +70,9 @@ enum wt_type12_pwle_specifier {
 	PWLE_SPEC_WAIT,
 	PWLE_SPEC_SVC_MODE,
 	PWLE_SPEC_SVC_BRAKING_TIME,
+	PWLE_SPEC_EP_LENGTH,
+	PWLE_SPEC_EP_PAYLOAD,
+	PWLE_SPEC_EP_THRESH,
 	PWLE_SPEC_NUM_VALS,
 	PWLE_SPEC_TIME,
 	PWLE_SPEC_LEVEL,
@@ -85,6 +90,7 @@ enum wt_type10_comp_specifier {
 	COMP_SPEC_INNER_LOOP_START,
 	COMP_SPEC_INNER_LOOP_STOP,
 	COMP_SPEC_OUTER_LOOP_REPETITION,
+	COMP_SPEC_EP_DATA_START,
 	COMP_SPEC_WVFRM,
 	COMP_SPEC_DELAY,
 	COMP_SPEC_INVALID,
@@ -114,6 +120,13 @@ struct wt_type12_svc_metadata {
 	uint32_t braking_time;
 };
 
+struct wt_ep_metadata {
+	unsigned int id;
+	unsigned int length;
+	unsigned int payload;
+	unsigned int custom_threshold;
+};
+
 struct wt_type12_pwle {
 	uint16_t feature;
 	unsigned int str_len;
@@ -124,6 +137,7 @@ struct wt_type12_pwle {
 	double nampsections;
 
 	struct wt_type12_svc_metadata svc_metadata;
+	struct wt_ep_metadata ep_metadata;
 	struct wt_type12_pwle_section sections[WT_MAX_SECTIONS];
 };
 
@@ -147,6 +161,7 @@ struct wt_type10_comp {
 	int fd;
 
 	struct wt_type10_comp_section sections[WT_MAX_SECTIONS];
+	struct wt_ep_metadata ep_metadata;
 };
 
 /*

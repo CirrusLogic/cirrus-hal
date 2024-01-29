@@ -252,6 +252,14 @@ static int wt_type10_comp_to_buffer(struct wt_type10_comp *comp, int size,
 	struct dspmem_chunk ch = dspmem_chunk_create(buf, size);
 	int i;
 
+	/* EP metadata */
+	if (comp->ep_metadata.id == WT_EP_METADATA_ID) {
+		dspmem_chunk_write(&ch, 8, comp->ep_metadata.id);
+		dspmem_chunk_write(&ch, 8, comp->ep_metadata.length);
+		dspmem_chunk_write(&ch, 8, comp->ep_metadata.payload);
+		dspmem_chunk_write(&ch, 24, comp->ep_metadata.custom_threshold);
+	}
+
 	dspmem_chunk_write(&ch, 8, 0); /* Padding */
 	dspmem_chunk_write(&ch, 8, comp->nsections);
 	dspmem_chunk_write(&ch, 8, comp->repeat);
@@ -265,8 +273,7 @@ static int wt_type10_comp_to_buffer(struct wt_type10_comp *comp, int size,
 
 		if (comp->sections[i].flags & WT_TYPE10_COMP_DURATION_FLAG) {
 			dspmem_chunk_write(&ch, 8, 0); /* Padding */
-			dspmem_chunk_write(&ch, 16,
-					comp->sections[i].wvfrm.duration);
+			dspmem_chunk_write(&ch, 16, comp->sections[i].wvfrm.duration);
 		}
 	}
 
@@ -297,6 +304,8 @@ static enum wt_type10_comp_specifier wt_type10_comp_specifier_get(char *str)
 		return COMP_SPEC_OUTER_LOOP_REPETITION;
 	else if (strnchr(str, WT_TYPE10_COMP_SEG_LEN_MAX, '.'))
 		return COMP_SPEC_WVFRM;
+	else if (strnchr(str, WT_TYPE10_COMP_METADATA_LEN, '['))
+		return COMP_SPEC_EP_DATA_START;
 	else
 		return COMP_SPEC_DELAY;
 
@@ -440,6 +449,16 @@ static int wt_type10_comp_decode(struct wt_type10_comp *comp,
 
 		comp->inner_loop = true;
 		break;
+	case COMP_SPEC_EP_DATA_START:
+		ret = sscanf(str + 1, "%u;%u;%u", &comp->ep_metadata.length,
+				&comp->ep_metadata.payload, &comp->ep_metadata.custom_threshold);
+		if (ret < 3) {
+			printf("Failed to parse EP data\n");
+			return -EINVAL;
+		}
+
+		comp->ep_metadata.id = WT_EP_METADATA_ID;
+		break;
 	case COMP_SPEC_INNER_LOOP_STOP:
 		if (!comp->inner_loop) {
 			printf("Error: Inner loop stop with no start\n");
@@ -513,7 +532,7 @@ static int wt_type10_comp_decode(struct wt_type10_comp *comp,
 static int wt_type10_comp_str_to_bin(char *full_str, uint8_t *data)
 {
 	enum wt_type10_comp_specifier specifier;
-	char delim[] = ", \n";
+	char delim[] = "], \n";
 	struct wt_type10_comp comp = { 0 };
 	char *str;
 	int ret;
@@ -584,6 +603,12 @@ static enum wt_type12_pwle_specifier wt_type12_pwle_specifier_get(char *str)
 		return PWLE_SPEC_SVC_MODE;
 	else if (str[0] == 'K')
 		return PWLE_SPEC_SVC_BRAKING_TIME;
+	else if (!strncmp(str, "EM", 2))
+		return PWLE_SPEC_EP_LENGTH;
+	else if (!strncmp(str, "ET", 2))
+		return PWLE_SPEC_EP_PAYLOAD;
+	else if (!strncmp(str, "EC", 2))
+		return PWLE_SPEC_EP_THRESH;
 	else if (str[0] == 'R')
 		return PWLE_SPEC_RELFREQ;
 	else
@@ -668,12 +693,12 @@ static int wt_type12_pwle_repeat_entry(struct wt_type12_pwle *pwle, char *token)
 }
 
 /*
- * wt_type12_pwle_svc_entry() - Get SVC braking mode value from string
+ * wt_type12_pwle_svc_mode_entry() - Get SVC mode from string
  *
  * @pwle: Pointer to struct with PWLE information
  * @token: Portion of string being analyzed
  *
- * Get the SVC mode value from the PWLE string.
+ * Get the SVC mode from the PWLE string.
  *
  * Returns 0 upon success.
  * Returns negative errno in error case.
@@ -687,7 +712,7 @@ static int wt_type12_pwle_svc_mode_entry(struct wt_type12_pwle *pwle, char *toke
 		printf("Valid SVC modes are 0 to 3, or -1 indicating none\n");
 		return -EINVAL;
 	} else if (val != -1) {
-		pwle->svc_metadata.id = 1;
+		pwle->svc_metadata.id = WT_SVC_METADATA_ID;
 		pwle->svc_metadata.length = 1;
 		pwle->svc_metadata.mode = val;
 	}
@@ -696,12 +721,12 @@ static int wt_type12_pwle_svc_mode_entry(struct wt_type12_pwle *pwle, char *toke
 }
 
 /*
- * wt_type12_pwle_svc_entry() - Get SVC braking mode value from string
+ * wt_type12_pwle_svc_braking_time_entry() - Get SVC braking time from string
  *
  * @pwle: Pointer to struct with PWLE information
  * @token: Portion of string being analyzed
  *
- * Get the SVC mode value from the PWLE string.
+ * Get the SVC braking time from the PWLE string.
  *
  * Returns 0 upon success.
  * Returns negative errno in error case.
@@ -717,6 +742,81 @@ static int wt_type12_pwle_svc_braking_time_entry(struct wt_type12_pwle *pwle, ch
 	}
 
 	pwle->svc_metadata.braking_time = val * 8;
+
+	return 0;
+}
+
+
+/*
+ * wt_type12_pwle_ep_length_entry() - Get threshold mode from string
+ *
+ * @pwle: Pointer to struct with PWLE information
+ * @token: Portion of string being analyzed
+ *
+ * Returns 0 upon success.
+ * Returns negative errno in error case.
+ *
+ */
+static int wt_type12_pwle_ep_length_entry(struct wt_type12_pwle *pwle, char *token)
+{
+	int val = atoi(token);
+
+	if (val != 1 || val != 0) {
+		printf("Valid EP threshold mode: 0 or 1\n");
+		return -EINVAL;
+	}
+
+	pwle->ep_metadata.length = val;
+
+	return 0;
+}
+
+/*
+ * wt_type12_pwle_ep_payload_entry() - Get excursion limit payload from string
+ *
+ * @pwle: Pointer to struct with PWLE information
+ * @token: Portion of string being analyzed
+ *
+ * Returns 0 upon success.
+ * Returns negative errno in error case.
+ *
+ */
+static int wt_type12_pwle_ep_payload_entry(struct wt_type12_pwle *pwle, char *token)
+{
+	int val = atoi(token);
+
+	if (val < 0 || val > 7) {
+		printf("Valid EP payload: 0 - 7\n");
+		return -EINVAL;
+	}
+
+	pwle->ep_metadata.payload = val;
+	if (val != 0)
+		pwle->ep_metadata.id = 2;
+
+	return 0;
+}
+
+/*
+ * wt_type12_pwle_ep_threshold_entry() - Get excursion limit payload from string
+ *
+ * @pwle: Pointer to struct with PWLE information
+ * @token: Portion of string being analyzed
+ *
+ * Returns 0 upon success.
+ * Returns negative errno in error case.
+ *
+ */
+static int wt_type12_pwle_ep_threshold_entry(struct wt_type12_pwle *pwle, char *token)
+{
+	int val = atoi(token);
+
+	if (val < 0) {
+		printf("Valid EP custom threshold: >=0\n");
+		return -EINVAL;
+	}
+
+	pwle->ep_metadata.custom_threshold = val;
 
 	return 0;
 }
@@ -920,28 +1020,22 @@ static int wt_type12_pwle_vb_target_entry(struct wt_type12_pwle *pwle,
 static int wt_type12_pwle_write(struct wt_type12_pwle *pwle, void *buf,
 		int size)
 {
-	bool svc_waveform = pwle->feature & WT_TYPE12_PWLE_SVC_FLAG;
 	struct dspmem_chunk ch = dspmem_chunk_create(buf, size);
 	int i;
 
+	/* Header */
 	dspmem_chunk_write(&ch, 16, pwle->feature);
 	dspmem_chunk_write(&ch, 8, WT_TYPE12_PWLE);
-	dspmem_chunk_write(&ch, 24, WT_TYPE12_HEADER_WORDS +
-			(svc_waveform ? WT_TYPE12_SVC_METADATA_WORDS : 0));
+	dspmem_chunk_write(&ch, 24, WT_TYPE12_HEADER_WORDS);
 	dspmem_chunk_write(&ch, 24, (pwle->nsections * 2) + pwle->nampsections + 3);
 
-	if (svc_waveform) {
-		dspmem_chunk_write(&ch, 8, pwle->svc_metadata.id);
-		dspmem_chunk_write(&ch, 8, pwle->svc_metadata.length);
-		dspmem_chunk_write(&ch, 8, pwle->svc_metadata.mode);
-		dspmem_chunk_write(&ch, 24, pwle->svc_metadata.braking_time);
-		dspmem_chunk_write(&ch, 24, WT_TYPE12_METADATA_TERMINATOR);
-	}
+	/* Section info */
 	dspmem_chunk_write(&ch, 24, pwle->wlength);
 	dspmem_chunk_write(&ch, 8, pwle->repeat);
 	dspmem_chunk_write(&ch, 12, pwle->wait);
 	dspmem_chunk_write(&ch, 8, pwle->nsections);
 
+	/* Data */
 	for (i = 0; i < pwle->nsections; i++) {
 		dspmem_chunk_write(&ch, 16, pwle->sections[i].time);
 		dspmem_chunk_write(&ch, 12, pwle->sections[i].level);
@@ -950,6 +1044,29 @@ static int wt_type12_pwle_write(struct wt_type12_pwle *pwle, void *buf,
 
 		if (pwle->sections[i].flags & WT_TYPE12_PWLE_AMP_REG_BIT)
 			dspmem_chunk_write(&ch, 24, pwle->sections[i].vbtarget);
+	}
+
+	/* Metadata */
+	if (pwle->feature & WT_TYPE12_PWLE_METADATA_FLAG) {
+		/* SVC metadata */
+		if (pwle->svc_metadata.id == WT_SVC_METADATA_ID) {
+			dspmem_chunk_write(&ch, 8, pwle->svc_metadata.id);
+			dspmem_chunk_write(&ch, 8, pwle->svc_metadata.length);
+			dspmem_chunk_write(&ch, 8, pwle->svc_metadata.mode);
+			dspmem_chunk_write(&ch, 24, pwle->svc_metadata.braking_time);
+		}
+		/* EP metadata */
+		if (pwle->ep_metadata.id == WT_EP_METADATA_ID) {
+			dspmem_chunk_write(&ch, 8, pwle->ep_metadata.id);
+			dspmem_chunk_write(&ch, 8, pwle->ep_metadata.length);
+			dspmem_chunk_write(&ch, 8, pwle->ep_metadata.payload);
+
+			if (pwle->ep_metadata.length == 1)
+				dspmem_chunk_write(&ch, 24, pwle->ep_metadata.custom_threshold);
+		}
+
+		/* Terminator */
+		dspmem_chunk_write(&ch, 24, WT_TYPE12_METADATA_TERMINATOR);
 	}
 
 	dspmem_chunk_flush(&ch);
@@ -1033,7 +1150,7 @@ static int wt_type12_pwle_str_to_bin(char *full_str, uint8_t *data)
 			break;
 		case PWLE_SPEC_SVC_MODE:
 			if (num_vals != 4) {
-				printf("Malformed PWLE, incorrect M slot\n");
+				printf("Malformed PWLE, missing SVC mode\n");
 				return -EINVAL;
 			}
 
@@ -1043,11 +1160,41 @@ static int wt_type12_pwle_str_to_bin(char *full_str, uint8_t *data)
 			break;
 		case PWLE_SPEC_SVC_BRAKING_TIME:
 			if (num_vals != 5) {
-				printf("Malforned PWLE, incorrect K slot\n");
+				printf("Malformed PWLE, missing SVC braking time\n");
 				return -EINVAL;
 			}
 
 			ret = wt_type12_pwle_svc_braking_time_entry(&pwle, str);
+			if (ret)
+				return ret;
+			break;
+		case PWLE_SPEC_EP_LENGTH:
+			if (num_vals != 6) {
+				printf("Malformed PWLE, missing EP threshold mode\n");
+				return -EINVAL;
+			}
+
+			ret = wt_type12_pwle_ep_length_entry(&pwle, str);
+			if (ret)
+				return ret;
+			break;
+		case PWLE_SPEC_EP_PAYLOAD:
+			if (num_vals != 7) {
+				printf("Malformed PWLE, missing EP payload\n");
+				return -EINVAL;
+			}
+
+			ret = wt_type12_pwle_ep_payload_entry(&pwle, str);
+			if (ret)
+				return ret;
+			break;
+		case PWLE_SPEC_EP_THRESH:
+			if (num_vals != 8) {
+				printf("Malformed PWLE, missing EP custom threshold\n");
+				return -EINVAL;
+			}
+
+			ret = wt_type12_pwle_ep_threshold_entry(&pwle, str);
 			if (ret)
 				return ret;
 			break;
@@ -1211,5 +1358,5 @@ int get_owt_data(char *full_str, uint8_t *data)
  */
 void owt_version_show(void)
 {
-	printf("1.1.1\n");
+	printf("1.2.0\n");
 }

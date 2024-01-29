@@ -17,6 +17,7 @@ ensure that any invalid input is rejected.
 | n!! | Inner loop stop | A number followed by two back-to-back exclamation points indicates the end of an inner loop, with n representing the number of times to repeat the inner loop (0 through 32). When the queue encounters an inner loop stop indicator, it returns to the next waveform or pause indicator immediately following the previous inner loop start indicator. Each inner loop stop indicator must be preceded by a corresponding inner loop start indicator. |
 | Xm.n | Waveform | Two numbers separated by a period are interpreted as a waveform indicator, with m representing the corresponding value of the index in the RAM wavetable to be rendered and n representing the percent scaling to be applied (1 through 100). Neither m nor n may be equal to zero; this is for backward compatibility with some legacy Cirrus Logic parts. An optional string X may be prepended to the index to specify either a ROM or RAM bank. . If no string is provided, the default is the RAM bank. |
 | ~ | Outer loop repeat (infinite) | A single tilde indicates that the entire queue (outer loop) is to be repeated indefinitely until canceled. An infinite outer loop repeat indicator can be placed anywhere in the queue, but only one may be present. It is forbidden to include an infinite outer loop repeat indicator if a finite outer loop repeat indicator is already present. |
+| [m;n;q] | EP data | Three integers enclosed in brackets and separated by the ; character indicate the use of excursion for this waveform. The first integer "m" may be a 0 or 1, indicating a fixed/default or custom threshold respectively. The second integer "n" is the integer representation of the EP bitfield described below this table. The third integer "q" specifies the custom threshold value. |
 
 # Type 12 (PWLE) waveforms
 
@@ -27,11 +28,14 @@ the RAM wavetable and triggered without using previously loaded waveforms as in 
 | Symbol | Values | Description |
 | ------------- | ------------- | ------------- |
 | S | 0 or 1 | Unused but must be present. |
-| WF | 0 - 255 | Indicate what features are present in the waveform. The value for this symbol is an integer representation of the bit field described below this table. |
+| WF | 0 - 255 | Indicate what features are present in the waveform. The value for this symbol is an integer representation of the WF bit field described below this table. |
 | RP | 0 - 255 | The number of times the entire waveform will play if not interrupted. |
 | WT | 0 - 1023.75 | Amount of time in ms to wait before repeating playback. 0.25 ms resolution. |
 | M | -1, 0, 1, 2, 3 | SVC braking mode. -1: None, 0: CAT, 1: Closed loop, 2: Open loop, 3: Mixed mode |
 | K | 0 - 1000 | SVC braking time in ms. |
+| EM | 0 or 1 | EP threshold mode. 0: Fixed or default threshold, 1: Custom threshold |
+| ET | 0 - 7 | EP threshold. The value for this symbol is an integer representation of the EP bit field described below this table. |
+| EC | >= 0| EP Custom threshold (if EM = 0 and bits 2:1 of ET = 0). |
 | T# | 0 - 16383.5 or 16383.75 | The time at which the section corresponding to # will start in ms. An indefinite value will continue playing the section until interrupted. 0.25 ms resolution. |
 | L# | -1 - 0.9995 | Intensity level, negative values cause a 180-degree phase shift. 0.00048 resolution. |
 | F# | 0 - 1023.75 | Sets the synthesized frequency of the PWLE section. 0.25 Hz resolution. For other sections than the first one, if this item is set to 0x0, the frequency is not fixed and instead is set to the resonant frequency of the actuator (F0). |
@@ -49,8 +53,14 @@ Waveform feature (WF) bitfield:
 | 5 | Unused | N/A | N/A |
 | 4 | Dynamic F0 | Disabled | Enabled |
 | 3 | Unused | N/A | N/A |
-| 2 | Metadata for SVC | No metadata | Metadata present |
+| 2 | Metadata for SVC or EP | No metadata | Metadata present |
 | 1 | DVL | Disabled | Enabled |
 | 0 | LF0T | Disabled | Enabled |
+
+EP Threshold bitfield:
+| Bit No  | 00 | 01 | 10 | 11 |
+| ------------- | ------------- | ----- | ------ | ---- |
+| 0      | No excursion limit applied     | Excursion limit applied | N/A | N/A |
+| 2:1      | Default/custom threshold     | Fixed threshold #1 | Fixed threshold #2 | Fixed Threshold #3 |
 
 See main.c for examples of how to use this library with each type of OWT waveform.
