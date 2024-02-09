@@ -35,7 +35,7 @@ the RAM wavetable and triggered without using previously loaded waveforms as in 
 | K | 0 - 1000 | SVC braking time in ms. |
 | EM | 0 or 1 | EP threshold mode. 0: Fixed or default threshold, 1: Custom threshold |
 | ET | 0 - 7 | EP threshold. The value for this symbol is an integer representation of the EP bit field described below this table. |
-| EC | >= 0| EP Custom threshold (if EM = 0 and bits 2:1 of ET = 0). |
+| EC | >= 0| EP Custom threshold (if EM = 1 and bits 2:1 of ET = 0). |
 | T# | 0 - 16383.5 or 16383.75 | The time at which the section corresponding to # will start in ms. An indefinite value will continue playing the section until interrupted. 0.25 ms resolution. |
 | L# | -1 - 0.9995 | Intensity level, negative values cause a 180-degree phase shift. 0.00048 resolution. |
 | F# | 0 - 1023.75 | Sets the synthesized frequency of the PWLE section. 0.25 Hz resolution. For other sections than the first one, if this item is set to 0x0, the frequency is not fixed and instead is set to the resonant frequency of the actuator (F0). |

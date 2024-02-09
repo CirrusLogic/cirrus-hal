@@ -1358,5 +1358,5 @@ int get_owt_data(char *full_str, uint8_t *data)
  */
 void owt_version_show(void)
 {
-	printf("1.2.0\n");
+	printf("1.2.1\n");
 }
