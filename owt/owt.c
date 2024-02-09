@@ -761,8 +761,8 @@ static int wt_type12_pwle_ep_length_entry(struct wt_type12_pwle *pwle, char *tok
 {
 	int val = atoi(token);
 
-	if (val != 1 || val != 0) {
-		printf("Valid EP threshold mode: 0 or 1\n");
+	if (val > 1 || val < 0) {
+		printf("Valid EP threshold mode: 0 or 1 (is %d)\n", val);
 		return -EINVAL;
 	}
 
