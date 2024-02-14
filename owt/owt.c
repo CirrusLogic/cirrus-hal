@@ -252,14 +252,6 @@ static int wt_type10_comp_to_buffer(struct wt_type10_comp *comp, int size,
 	struct dspmem_chunk ch = dspmem_chunk_create(buf, size);
 	int i;
 
-	/* EP metadata */
-	if (comp->ep_metadata.id == WT_EP_METADATA_ID) {
-		dspmem_chunk_write(&ch, 8, comp->ep_metadata.id);
-		dspmem_chunk_write(&ch, 8, comp->ep_metadata.length);
-		dspmem_chunk_write(&ch, 8, comp->ep_metadata.payload);
-		dspmem_chunk_write(&ch, 24, comp->ep_metadata.custom_threshold);
-	}
-
 	dspmem_chunk_write(&ch, 8, 0); /* Padding */
 	dspmem_chunk_write(&ch, 8, comp->nsections);
 	dspmem_chunk_write(&ch, 8, comp->repeat);
@@ -304,8 +296,6 @@ static enum wt_type10_comp_specifier wt_type10_comp_specifier_get(char *str)
 		return COMP_SPEC_OUTER_LOOP_REPETITION;
 	else if (strnchr(str, WT_TYPE10_COMP_SEG_LEN_MAX, '.'))
 		return COMP_SPEC_WVFRM;
-	else if (strnchr(str, WT_TYPE10_COMP_METADATA_LEN, '['))
-		return COMP_SPEC_EP_DATA_START;
 	else
 		return COMP_SPEC_DELAY;
 
@@ -449,16 +439,6 @@ static int wt_type10_comp_decode(struct wt_type10_comp *comp,
 
 		comp->inner_loop = true;
 		break;
-	case COMP_SPEC_EP_DATA_START:
-		ret = sscanf(str + 1, "%u;%u;%u", &comp->ep_metadata.length,
-				&comp->ep_metadata.payload, &comp->ep_metadata.custom_threshold);
-		if (ret < 3) {
-			printf("Failed to parse EP data\n");
-			return -EINVAL;
-		}
-
-		comp->ep_metadata.id = WT_EP_METADATA_ID;
-		break;
 	case COMP_SPEC_INNER_LOOP_STOP:
 		if (!comp->inner_loop) {
 			printf("Error: Inner loop stop with no start\n");
@@ -532,7 +512,7 @@ static int wt_type10_comp_decode(struct wt_type10_comp *comp,
 static int wt_type10_comp_str_to_bin(char *full_str, uint8_t *data)
 {
 	enum wt_type10_comp_specifier specifier;
-	char delim[] = "], \n";
+	char delim[] = ", \n";
 	struct wt_type10_comp comp = { 0 };
 	char *str;
 	int ret;
@@ -812,7 +792,7 @@ static int wt_type12_pwle_ep_threshold_entry(struct wt_type12_pwle *pwle, char *
 	int val = atoi(token);
 
 	if (val < 0) {
-		printf("Valid EP custom threshold: >=0\n");
+		printf("Valid EP custom threshold: >= 0\n");
 		return -EINVAL;
 	}
 
@@ -1021,13 +1001,44 @@ static int wt_type12_pwle_write(struct wt_type12_pwle *pwle, void *buf,
 		int size)
 {
 	struct dspmem_chunk ch = dspmem_chunk_create(buf, size);
+	uint32_t header_words = WT_TYPE12_HEADER_WORDS;
 	int i;
 
 	/* Header */
 	dspmem_chunk_write(&ch, 16, pwle->feature);
 	dspmem_chunk_write(&ch, 8, WT_TYPE12_PWLE);
-	dspmem_chunk_write(&ch, 24, WT_TYPE12_HEADER_WORDS);
+
+	if (pwle->feature & WT_TYPE12_PWLE_METADATA_FLAG) {
+		if (pwle->svc_metadata.id == WT_SVC_METADATA_ID)
+			header_words += (1 + pwle->svc_metadata.length);
+		if (pwle->ep_metadata.id == WT_EP_METADATA_ID)
+			header_words += (1 + pwle->ep_metadata.length);
+	}
+
+	dspmem_chunk_write(&ch, 24, header_words);
 	dspmem_chunk_write(&ch, 24, (pwle->nsections * 2) + pwle->nampsections + 3);
+
+	/* Metadata */
+	if (pwle->feature & WT_TYPE12_PWLE_METADATA_FLAG) {
+		if (pwle->svc_metadata.id == WT_SVC_METADATA_ID) {
+			dspmem_chunk_write(&ch, 8, pwle->svc_metadata.id);
+			dspmem_chunk_write(&ch, 8, pwle->svc_metadata.length);
+			dspmem_chunk_write(&ch, 8, pwle->svc_metadata.mode);
+			dspmem_chunk_write(&ch, 24, pwle->svc_metadata.braking_time);
+		}
+
+		if (pwle->ep_metadata.id == WT_EP_METADATA_ID) {
+			dspmem_chunk_write(&ch, 8, pwle->ep_metadata.id);
+			dspmem_chunk_write(&ch, 8, pwle->ep_metadata.length);
+			dspmem_chunk_write(&ch, 8, pwle->ep_metadata.payload);
+
+			if (pwle->ep_metadata.length == 1)
+				dspmem_chunk_write(&ch, 24, pwle->ep_metadata.custom_threshold);
+		}
+	}
+
+	/* Terminator */
+	dspmem_chunk_write(&ch, 24, WT_TYPE12_TERMINATOR);
 
 	/* Section info */
 	dspmem_chunk_write(&ch, 24, pwle->wlength);
@@ -1040,33 +1051,10 @@ static int wt_type12_pwle_write(struct wt_type12_pwle *pwle, void *buf,
 		dspmem_chunk_write(&ch, 16, pwle->sections[i].time);
 		dspmem_chunk_write(&ch, 12, pwle->sections[i].level);
 		dspmem_chunk_write(&ch, 12, pwle->sections[i].frequency);
-		dspmem_chunk_write(&ch, 8, (pwle->sections[i].flags | 1) << 4);
+		dspmem_chunk_write(&ch, 8, pwle->sections[i].flags);
 
 		if (pwle->sections[i].flags & WT_TYPE12_PWLE_AMP_REG_BIT)
 			dspmem_chunk_write(&ch, 24, pwle->sections[i].vbtarget);
-	}
-
-	/* Metadata */
-	if (pwle->feature & WT_TYPE12_PWLE_METADATA_FLAG) {
-		/* SVC metadata */
-		if (pwle->svc_metadata.id == WT_SVC_METADATA_ID) {
-			dspmem_chunk_write(&ch, 8, pwle->svc_metadata.id);
-			dspmem_chunk_write(&ch, 8, pwle->svc_metadata.length);
-			dspmem_chunk_write(&ch, 8, pwle->svc_metadata.mode);
-			dspmem_chunk_write(&ch, 24, pwle->svc_metadata.braking_time);
-		}
-		/* EP metadata */
-		if (pwle->ep_metadata.id == WT_EP_METADATA_ID) {
-			dspmem_chunk_write(&ch, 8, pwle->ep_metadata.id);
-			dspmem_chunk_write(&ch, 8, pwle->ep_metadata.length);
-			dspmem_chunk_write(&ch, 8, pwle->ep_metadata.payload);
-
-			if (pwle->ep_metadata.length == 1)
-				dspmem_chunk_write(&ch, 24, pwle->ep_metadata.custom_threshold);
-		}
-
-		/* Terminator */
-		dspmem_chunk_write(&ch, 24, WT_TYPE12_METADATA_TERMINATOR);
 	}
 
 	dspmem_chunk_flush(&ch);
@@ -1358,5 +1346,5 @@ int get_owt_data(char *full_str, uint8_t *data)
  */
 void owt_version_show(void)
 {
-	printf("1.2.1\n");
+	printf("1.2.2\n");
 }
