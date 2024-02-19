@@ -132,7 +132,7 @@ static void ffcirrus_upload_prompt(struct ffcirrus *ff)
 		}
 
 		ret = ffcirrus_upload_effect(bank, duration, value, 0,
-				magnitude, ff->fd, &effect);
+				magnitude, ff->fd, false, &effect);
 		if (ret < 0)
 			return;
 	} else {
@@ -498,11 +498,9 @@ void ffcirrus_display_help(void)
 }
 
 int ffcirrus_upload_effect(enum ffcirrus_wvfrm_bank bank, int duration,
-		int value, int gpi, int magnitude, int fd,
+		int value, int gpi, int magnitude, int fd, bool invert,
 		struct ff_effect *effect)
 {
-	bool invert = (value < 0) ? true : false;
-
 	effect->id = -1;
 	effect->type = FF_PERIODIC;
 
@@ -526,13 +524,12 @@ int ffcirrus_upload_effect(enum ffcirrus_wvfrm_bank bank, int duration,
 		}
 
 		effect->u.periodic.custom_data[0] = bank;
-		if (invert) {
-			effect->u.periodic.custom_data[1] = UINT_MAX + 1 - value;
+		effect->u.periodic.custom_data[1] = value;
+		if (invert)
 			effect->direction = WVFRM_INVERT;
-		} else {
-			effect->u.periodic.custom_data[1] = value;
+		else
 			effect->direction = 0;
-		}
+
 		effect->u.periodic.custom_len = CUSTOM_DATA_SIZE;
 	} else if (bank == OWT_WVFRM_BANK) {
 		//Do some stuff

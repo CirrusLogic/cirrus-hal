@@ -96,7 +96,8 @@ struct ffcirrus {
 	unsigned int nowt;
 };
 
-int ffcirrus_upload_effect(enum ffcirrus_wvfrm_bank, int, int, int, int, int, struct ff_effect *);
+int ffcirrus_upload_effect(enum ffcirrus_wvfrm_bank, int, int, int, int, int, bool,
+		struct ff_effect *);
 int ffcirrus_trigger_effect(int, bool, int);
 int ffcirrus_set_global_gain(int, int);
 void ffcirrus_display_help(void);

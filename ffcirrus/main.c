@@ -177,10 +177,7 @@ int main(int argc, char** argv)
 		}
 
 		if (bank != OWT_WVFRM_BANK) {
-			if (r && bank != BUZ_WVFRM_BANK)
-				value *= -1;
-
-			if (ffcirrus_upload_effect(bank, duration, value, gpi, mag, fd, &effect) < 0) {
+			if (ffcirrus_upload_effect(bank, duration, value, gpi, mag, fd, r, &effect) < 0) {
 				printf("Failed to upload effect\n");
 				return effect.id;
 			}
