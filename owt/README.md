@@ -27,13 +27,13 @@ the RAM wavetable and triggered without using previously loaded waveforms as in 
 | Symbol | Values | Description |
 | ------------- | ------------- | ------------- |
 | S | 0 or 1 | Unused but must be present. |
-| WF | 0 - 255 | Indicate what features are present in the waveform. The value for this symbol is an integer representation of the WF bit field described below this table. |
+| WF | 0 - 255 | Indicate what features are present in the waveform. The value for this symbol is a decimal representation of the WF bit field described below this table. |
 | RP | 0 - 255 | The number of times the entire waveform will play if not interrupted. |
 | WT | 0 - 1023.75 | Amount of time in ms to wait before repeating playback. 0.25 ms resolution. |
 | M | -1, 0, 1, 2, 3 | SVC braking mode. -1: None, 0: CAT, 1: Closed loop, 2: Open loop, 3: Mixed mode |
 | K | 0 - 1000 | SVC braking time in ms. |
-| EM | 0 or 1 | EP threshold mode. 0: Fixed or default threshold, 1: Custom threshold |
-| ET | 0 - 7 | EP threshold. The value for this symbol is an integer representation of the EP bit field described below this table. |
+| EM | -1, 0 or 1 | EP threshold mode. 0: Fixed or default threshold, 1: Custom threshold, -1: Ignore all EP-related fields |
+| ET | 0 - 7 | EP threshold. The value for this symbol is a decimal representation of the EP bit field described below this table. |
 | EC | >= 0| EP Custom threshold (if EM = 1 and bits 2:1 of ET = 0). |
 | T# | 0 - 16383.5 or 16383.75 | The time at which the section corresponding to # will start in ms. An indefinite value will continue playing the section until interrupted. 0.25 ms resolution. |
 | L# | -1 - 0.9995 | Intensity level, negative values cause a 180-degree phase shift. 0.00048 resolution. |
@@ -57,9 +57,15 @@ Waveform feature (WF) bitfield:
 | 0 | LF0T | Disabled | Enabled |
 
 EP Threshold bitfield:
-| Bit No  | 00 | 01 | 10 | 11 |
+| Bit 1:2  | Bit 0 | Value | Meaning |
 | ------------- | ------------- | ----- | ------ | ---- |
-| 0      | No excursion limit applied     | Excursion limit applied | N/A | N/A |
-| 2:1      | Default/custom threshold     | Fixed threshold #1 | Fixed threshold #2 | Fixed Threshold #3 |
+| 00 | 0 | 000 (decimal 0) | No limit |
+| 00 | 1 | 001 (decimal 1) | Default/Custom Threshold |
+| 01 | 0 | 010 (decimal 2) | No limit |
+| 01 | 1 | 011 (decimal 3) | Fixed Threshold #1 |
+| 10 | 0 | 100 (decimal 4) | No limit |
+| 10 | 1 | 101 (decimal 5) | Fixed Threshold #2 |
+| 11 | 0 | 110 (decimal 6) | No limit |
+| 11 | 1 | 111 (decimal 7) | Fixed Threshold #3 |
 
 See main.c for examples of how to use this library with each type of OWT waveform.

@@ -741,12 +741,15 @@ static int wt_type12_pwle_ep_length_entry(struct wt_type12_pwle *pwle, char *tok
 {
 	int val = atoi(token);
 
-	if (val > 1 || val < 0) {
-		printf("Valid EP threshold mode: 0 or 1 (is %d)\n", val);
+	if (val > 1 || val < -1) {
+		printf("Valid EP threshold mode: -1, 0, or 1 (is %d)\n", val);
 		return -EINVAL;
 	}
 
-	pwle->ep_metadata.length = val;
+	if (val != -1) {
+		pwle->ep_metadata.length = val;
+		pwle->ep_metadata.id = 2;
+	}
 
 	return 0;
 }
@@ -771,8 +774,6 @@ static int wt_type12_pwle_ep_payload_entry(struct wt_type12_pwle *pwle, char *to
 	}
 
 	pwle->ep_metadata.payload = val;
-	if (val != 0)
-		pwle->ep_metadata.id = 2;
 
 	return 0;
 }
@@ -1346,5 +1347,5 @@ int get_owt_data(char *full_str, uint8_t *data)
  */
 void owt_version_show(void)
 {
-	printf("1.2.2\n");
+	printf("1.2.3\n");
 }
