@@ -99,8 +99,8 @@ int main(int argc, char **argv)
 	 */
 
 	memset(str, '\0', sizeof(str));
-	strcpy(str, "S:0,WF:0,RP:1,WT:399.5,M:-1,K:0,T0:0,L0:0.49152,F0:200,C0:0,B0:0,AR0:0,R0:0,\
-	       V0:0,T1:400,L1:0.49152,F1:200,C1:0,B1:0,AR1:1,R1:0,V1:0.022");
+	strcpy(str, "S:0,WF:0,RP:1,WT:399.5,M:-1,K:0,T0:0,L0:0.49152,F0:200,C0:0,B0:0,AR0:0,PO0:0,R0:0,\
+	       V0:0,T1:400,L1:0.49152,F1:200,C1:0,B1:0,AR1:1,PO1:0,R1:0,V1:0.022");
 
 	memset(data, 0, WT_TYPE12_PWLE_SINGLE_PACKED_MAX);
 	num_bytes = get_owt_data(str, data);

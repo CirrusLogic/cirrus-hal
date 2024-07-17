@@ -41,6 +41,7 @@ the RAM wavetable and triggered without using previously loaded waveforms as in 
 | C# | 0 or 1 | If 0, the frequency defined with F# is constant. If 1, the frequency ramps linearly up or down starting with frequency given with F(#-1), level L(#-1), at time T(#-1), and ends with frequency F#, level L# at time T#. |
 | B# | 0 or 1 | Unused but must be present. |
 | AR# | 0 or 1 | If 0, amplitude regulation is disabled for this section. (V#) must be 0. If 1, amplitude regulation is enabled for this section and VbTarget (V#) must be set. |
+| PO# | 0 or 1 | Offset to LRA resonant frequency using Live F0 Tracking with phase offset. If 1, the frequency value "F#" is interpreted as a Qs0.11 value between -1 and 1. The phase offset is equal to the frequency value "F#" multipled by pi/2 radians. |
 | R# | 0 or 1 | If 1, the frequency value "F#" is interpreted as a signed offset applied to the resonant frequency (F0). The resulting output frequency is F0 + F# + VIBEGEN_F0_OFFSET which is a global value present in the firmware. |
 | V# | 0 or 1 | Target back EMF value for amplitude regulation. This can only be non-zero if amplitude regulation (AR#) is set to 1. |
 
@@ -57,8 +58,8 @@ Waveform feature (WF) bitfield:
 | 0 | LF0T | Disabled | Enabled |
 
 EP Threshold bitfield:
-| Bit 1:2  | Bit 0 | Value | Meaning |
-| ------------- | ------------- | ----- | ------ | ---- |
+| Bit 1:2 | Bit 0 | Value | Meaning |
+| ----- | ----- | ----- | ----- |
 | 00 | 0 | 000 (decimal 0) | No limit |
 | 00 | 1 | 001 (decimal 1) | Default/Custom Threshold |
 | 01 | 0 | 010 (decimal 2) | No limit |

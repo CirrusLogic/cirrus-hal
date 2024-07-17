@@ -591,6 +591,8 @@ static enum wt_type12_pwle_specifier wt_type12_pwle_specifier_get(char *str)
 		return PWLE_SPEC_EP_THRESH;
 	else if (str[0] == 'R')
 		return PWLE_SPEC_RELFREQ;
+	else if (!strncmp(str, "PO", 2))
+		return PWLE_SPEC_PHASE_OFFSET;
 	else
 		return PWLE_SPEC_INVALID;
 }
@@ -916,13 +918,33 @@ static int wt_type12_pwle_level_entry(struct wt_type12_pwle *pwle, char *token,
  *
  */
 static int wt_type12_pwle_freq_entry(struct wt_type12_pwle *pwle, char *token, char *freq_val,
-		struct wt_type12_pwle_section *section)
+		char *phase_offset, struct wt_type12_pwle_section *section)
 {
-	int ret, rel_val, val;
+	int ret, val, rel_val = atoi(token), offset = atoi(phase_offset);
 
-	rel_val = atoi(token);
+	if (offset != 0 && offset != 1) {
+		printf("Valid phase offset setting: 0 or 1\n");
+		return -EINVAL;
+	}
 
-	if (rel_val == 0) {
+	if (rel_val != 0 && rel_val != 1) {
+		printf("Valid relative frequency setting: 0 or 1\n");
+		return -EINVAL;
+	}
+
+	if (offset == 1 && (pwle->feature & WT_TYPE12_PWLE_LF0T_FLAG) == 0) {
+		printf("Live F0 tracking must be enabled in the feature bitmap to use phase offset\n");
+		return -EINVAL;
+	}
+
+	if (!rel_val) {
+		if (offset) {
+			printf("F0-relative must be enabled in this section to use phase offset\n");
+			return -EINVAL;
+		}
+
+		section->flags |= WT_TYPE12_PWLE_EXT_FREQ_BIT;
+
 		/* Frequency is 0 (Resonant Frequency), or 0.25 Hz - 1023.75 Hz */
 		ret = parse_float(freq_val, &val, 4, 0.25f, 1023.75f);
 		if (ret) {
@@ -933,18 +955,26 @@ static int wt_type12_pwle_freq_entry(struct wt_type12_pwle *pwle, char *token, c
 				return ret;
 			}
 		}
-		section->flags |= WT_TYPE12_PWLE_EXT_FREQ_BIT;
-	} else if (rel_val == 1) {
-		/* Frequency is -512.00 Hz - 511.75 Hz */
-		ret = parse_float(freq_val, &val, 4, -512.0f, 511.75f);
-		if (ret) {
-			printf("Failed to parse relative frequency: %d\nValid values are -512.0 - 511.75\n", ret);
-			return ret;
-		}
-		section->flags |= WT_TYPE12_PWLE_REL_FREQ_BIT;
 	} else {
-		printf("Valid relative frequency setting: 0 or 1\n");
-		return -EINVAL;
+		section->flags |= WT_TYPE12_PWLE_REL_FREQ_BIT;
+
+		if (offset == 1) {
+			section->flags |= WT_TYPE12_PWLE_PHASE_OFFSET_BIT;
+
+			/* Phase offset is -1.0 - 1.0 */
+			ret = parse_float(freq_val, &val, 2047, -1.0f, 1.0f);
+			if (ret) {
+				printf("Failed to parse frequency: %d\nValid values are -1 - 1\n", ret);
+				return ret;
+			}
+		} else {
+			/* Frequency is -512.00 Hz - 511.75 Hz */
+			ret = parse_float(freq_val, &val, 4, -512.0f, 511.75f);
+			if (ret) {
+				printf("Failed to parse relative frequency: %d\nValid values are -512.0 - 511.75\n", ret);
+				return ret;
+			}
+		}
 	}
 
 	section->frequency = val;
@@ -1079,13 +1109,13 @@ static int wt_type12_pwle_write(struct wt_type12_pwle *pwle, void *buf,
 static int wt_type12_pwle_str_to_bin(char *full_str, uint8_t *data)
 {
 	bool t = false, l = false, f = false, c = false, b = false, a = false, r = false;
-	bool v = false, indef = false;
+	bool v = false, p = false, indef = false;
 	unsigned int num_vals = 0, num_segs = 0;
 	char delim[] = ",\n";
 	int ret = 0, val;
 	struct wt_type12_pwle_section *section;
 	struct wt_type12_pwle pwle;
-	char *str, *freq_val;
+	char *str, *freq_val, *phase_offset;
 
 	pwle.wlength = 0;
 	section = pwle.sections;
@@ -1260,8 +1290,12 @@ static int wt_type12_pwle_str_to_bin(char *full_str, uint8_t *data)
 
 			a = true;
 			break;
+		case PWLE_SPEC_PHASE_OFFSET:
+			phase_offset = str;
+			p = true;
+			break;
 		case PWLE_SPEC_RELFREQ:
-			ret = wt_type12_pwle_freq_entry(&pwle, str, freq_val, section);
+			ret = wt_type12_pwle_freq_entry(&pwle, str, freq_val, phase_offset, section);
 			if (ret)
 				return ret;
 
@@ -1290,7 +1324,7 @@ static int wt_type12_pwle_str_to_bin(char *full_str, uint8_t *data)
 	}
 
 	/* Verify last segment was complete */
-	if (!t || !l || !f || !c || !b || !a || !v || !r) {
+	if (!t || !l || !f || !c || !b || !a || !v || !r || !p) {
 		printf("Malformed PWLE: Missing entry in seg %d\n",
 				(num_segs - 1));
 		return -EINVAL;
@@ -1347,5 +1381,6 @@ int get_owt_data(char *full_str, uint8_t *data)
  */
 void owt_version_show(void)
 {
-	printf("1.2.3\n");
+	printf("OWT library version: 1.2.4\n");
+	printf("Minimum compatible VIBEGEN version: 4.02.00\n");
 }
