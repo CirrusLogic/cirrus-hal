@@ -38,7 +38,7 @@ the RAM wavetable and triggered without using previously loaded waveforms as in 
 | T# | 0 - 16383.5 or 16383.75 | The time at which the section corresponding to # will start in ms. An indefinite value will continue playing the section until interrupted. 0.25 ms resolution. |
 | L# | -1 - 0.9995 | Intensity level, negative values cause a 180-degree phase shift. 0.00048 resolution. |
 | F# | 0 - 1023.75 | Sets the synthesized frequency of the PWLE section. 0.25 Hz resolution. For other sections than the first one, if this item is set to 0x0, the frequency is not fixed and instead is set to the resonant frequency of the actuator (F0). |
-| C# | 0 or 1 | If 0, the frequency defined with F# is constant. If 1, the frequency ramps linearly up or down starting with frequency given with F(#-1), level L(#-1), at time T(#-1), and ends with frequency F#, level L# at time T#. |
+| C# | 0 or 1 | If 0, the frequency defined with F# is constant. If 1, the frequency ramps linearly up or down starting with frequency given with F(#-1), level L(#-1), at time T(#-1), and ends with frequency F#, level L# at time T#. C bit must be set to 1 for both the start T(#-1) and end T(#) bits for a segment that will have a chirp enabled. |
 | B# | 0 or 1 | Unused but must be present. |
 | AR# | 0 or 1 | If 0, amplitude regulation is disabled for this section. (V#) must be 0. If 1, amplitude regulation is enabled for this section and VbTarget (V#) must be set. |
 | PO# | 0 or 1 | Offset to LRA resonant frequency using Live F0 Tracking with phase offset. If 1, the frequency value "F#" is interpreted as a Qs0.11 value between -1 and 1. The phase offset is equal to the frequency value "F#" multipled by pi/2 radians. |
